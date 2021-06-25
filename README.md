@@ -18,3 +18,8 @@ Git overview of many repositories.
 
 Notes:
 - OpenBSD has `chicken-csi` instead of `csi`
+
+## Compiling
+
+- See running
+- Compile with `csc -static go.scm`
