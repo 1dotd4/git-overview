@@ -9,12 +9,12 @@ We would like to answer the following questions:
 
 To answer those questions we need a database structured as follow.
 
-Authors: *author*, nick, email
-Repositories: *repository*, name, url
-Branches: *branch*, repository
-BranchLabels: *group*, name
-GroupedBranches: *_branch_*, *_group_*
-Commits: *hash*, *repository*, _branch_, _author_, comment, timestamp
+- Authors: **author**, nick, email
+- Repositories: **repository**, name, url
+- Branches: **branch**, repository
+- BranchLabels: **group**, name
+- GroupedBranches: **_branch_**, **_group_**
+- Commits: **hash**, **repository**, _branch_, _author_, comment, timestamp
 
-Note: *primary keys* are in bold, _external keys_ are in italic.
+Note: **primary keys** are in bold, _external keys_ are in italic.
 
