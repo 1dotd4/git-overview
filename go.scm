@@ -47,7 +47,7 @@
     (div (@ (class "row my-3"))
       ,(map data->sxml-card data))))
 
-(define (build-repo) ;; TODO: refactor
+(define (build-repo data) ;; TODO: refactor
   `(div (@ (class "container"))
     (p (@ (class "text-center text-muted mt-3 small"))
       "Tests a busy project")
@@ -55,52 +55,17 @@
       (table (@ (class "table table-striped table-hover"))
         (thead
           (tr
-            (td "Repository")
-            (td "stable")
-            (td "feature/a")
-            (td "feature/b")))
+            ,(map (lambda (x) `(td ,x))
+              (car data))))
         (tbody
-          (tr
-            (td "my-fancy-core")
-            (td
-              ,(map data->sxml-compact-card
-                `(
-                  ,(a-sample-data)
-                  ,(a-sample-data)
-                  ,(a-sample-data)
-                  )))
-            (td
-              ,(map data->sxml-compact-card
-                `(
-                  ,(a-sample-data)
-                  )))
-            (td
-              ,(map data->sxml-compact-card
-                `(
-                  ,(a-sample-data)
-                  )))
-            )
-          (tr
-            (td "my-fancy-frontend")
-            (td
-              ,(map data->sxml-compact-card
-                `(
-                  ,(a-sample-data)
-                  ,(a-sample-data)
-                  ,(a-sample-data)
-                  )))
-            (td
-              ,(map data->sxml-compact-card
-                `(
-                  ,(a-sample-data)
-                  )))
-            (td
-              ,(map data->sxml-compact-card
-                `(
-                  ,(a-sample-data)
-                  )))
-            )
-          )))))
+          ,(map (lambda (x)
+                  `(tr 
+                      (td ,(car x))
+                      ,(map (lambda (y)
+                              `(td ,(map data->sxml-compact-card y)))
+                            (cdr x))))
+            (cdr data)))
+          ))))
 
 (define (build-page current-page)
   `(html
@@ -142,10 +107,32 @@
                     ,(a-sample-data)
                     )))
                 ((equal? current-page 'repo)
-                  (build-repo))
+                  (build-repo `(
+                    ("Repository" "stable" "feature/new-button" "feature/new-panel")
+                    ("our-fancy-core"
+                      ( ,(a-sample-data)
+                        ,(a-sample-data)
+                        ,(a-sample-data))
+                      ( ,(a-sample-data)
+                        ,(a-sample-data))
+                      ( ,(a-sample-data)
+                        ,(a-sample-data)
+                        ,(a-sample-data)
+                        ,(a-sample-data)))
+                    ("our-fancy-frontend"
+                      ( ,(a-sample-data)
+                        ,(a-sample-data)
+                        ,(a-sample-data))
+                      ( ,(a-sample-data)
+                        ,(a-sample-data))
+                      ( ,(a-sample-data)
+                        ,(a-sample-data)
+                        ,(a-sample-data)
+                        ,(a-sample-data)))
+                    )))
                 (else `(div (@ (class "container"))
                         (p (@ (class "text-center text-muted mt-3 small"))
-                            "Work in progress."))))
+                            "Page not found."))))
                                                       
 
       ;; - end body -
@@ -162,7 +149,8 @@
             (send-sxml-response (build-page 'user)))
           ((equal? (uri-path uri) '(/ "greet"))
             (send-response status: 'ok body: "<h1>Hello world</h1>"))
-          (else (continue)))))
+          (else
+            (send-response status: 'not-found body: )))))
 
 (vhost-map `((".*" . ,handle-greeting)))
 
