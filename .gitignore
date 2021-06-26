@@ -6,3 +6,4 @@
 *.scm#*
 .#*.scm
 *.link
+*.sqlite3
