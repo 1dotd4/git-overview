@@ -1,3 +1,79 @@
+;; Git overview - A simple overview of many git repositories.
+;;
+;; This project is licenced under BSD 3-Clause License which follows.
+;;
+;; Copyright (c) 2021, 1. d4
+;; All rights reserved.
+;; 
+;; Redistribution and use in source and binary forms, with or without
+;; modification, are permitted provided that the following conditions are met:
+;; 
+;; 1. Redistributions of source code must retain the above copyright notice, this
+;;   list of conditions and the following disclaimer.
+;; 
+;; 2. Redistributions in binary form must reproduce the above copyright notice,
+;;   this list of conditions and the following disclaimer in the documentation
+;;   and/or other materials provided with the distribution.
+;; 
+;; 3. Neither the name of the copyright holder nor the names of its
+;;   contributors may be used to endorse or promote products derived from
+;;   this software without specific prior written permission.
+;; 
+;; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+;; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+;; IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+;; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+;; FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+;; DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+;; SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+;; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+;; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+;;
+;; ==[ Introduction ]== 
+;; 
+;; This project arise from the need of a clear view of what is going on in
+;; a certain project. So the main question we want to answer are:
+;;
+;; - What are the last thing everyone did?
+;; - What is the situation of the project? Where are developers working now?
+;; - What are the latest steps by a developer on the whole project?
+;; 
+;; To answer those question I wish a tool that does those query for me. The
+;; tool should be accessible from anyone so that no one can be excluded or
+;; hide from their responsibilities.
+;;
+;; The user manual (aka README.md) explains the features and requirements
+;; for this project. Here we will discuss the design and implementation.
+;;
+;; ==[ Resolution ]==
+;; 
+;; In the future I *think* this document should be structured as follows:
+;; - Changelogs
+;; - Requirements analysis
+;; - Design of the project
+;; - Implementation
+;;   - Development and debugging notes
+;;   - Command line explaination
+;;   - Data explaination
+;;   - Import explaination
+;;   - External webhook explaination
+;;   - Server explaination
+;;
+;; ==[ Notes on data ]==
+;; 
+;; We would like to structure our database as follow:
+;;
+;; Authors: **author**, nick, email
+;; Repositories: **repository**, name, url
+;; Branches: **branch**, repository
+;; BranchLabels: **group**, name
+;; GroupedBranches: _**branch**_, _**group**_
+;; Commits: **hash**, **repository**, _branch_, _author_, comment, timestamp
+;;
+;; Note: **primary keys**, _external keys_.
+;;
+ 
 (import spiffy
         intarweb
         uri-common
@@ -207,4 +283,4 @@
 
 (vhost-map `((".*" . ,handle-greeting)))
 
-(start-server)
+;; (start-server)

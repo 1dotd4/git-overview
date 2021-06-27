@@ -1,25 +1,38 @@
-# go
-Git overview of many repositories.
+# Git Overview
+A simple overview of many git repositories.
 
-## Features
-- shows the last update on repository and branch for each contributor;
-- shows the last update for each contributor on grouped branches on each repositories
-	- table with each row a repository
-	- each column is a group of branches (ie. `features/*`) that are gathered together with a regular expression
-	- more people can be working on the same group of branches
-- show last updates of all repository and branches for a specific contributor
-	- filter by repositories and branches
+## Main features
+- User status and current working branch and repository.
+- User status on each repository:
+	- every repository is a row in a table;
+	- each column is a group of branches (ie. `features/*`) that are gathered together with a regular expression;
+	- more people can be working on the same group of branches.
+- All user commits in one place sorted by time:
+	- filter by repositories and branches;
+  - show the work of multiple users on selected repositories.
+
+## Other features
+- No JavaScript.
+- Desktop, tablet and mobile view (Bootstrap).
+- Single program for importing repository and standalone server.
+- Webhook integration (TBD).
+- Portable SQLite3 database for data and configuration.
 
 ## Running
 
-- Install [chicken scheme](//call-cc.org)
-- Install dependencies: `chicken-install spiffy sxml-serializer`
-- Run the server: `csi go.scm`
+- Import repositories with `git-overview import /path/to/git/repository`.
+- Run the server with `git-overview server`.
 
-Notes:
-- OpenBSD has `chicken-csi` instead of `csi`
+## Help
+- man pages (TBD)
 
 ## Compiling
 
-- See running
-- Compile with `csc -static go.scm`
+- Install [chicken scheme](//call-cc.org).
+- Install dependencies: `chicken-install spiffy sxml-serializer sqlite3`.
+- Compile with `csc -static go.scm`.
+
+Notes:
+- OpenBSD has `chicken-csc` instead of `csc`.
+- On OpenBSD you may need to manually compile the sqlite3 library by adding `-I/usr/local/include/` to the compile command.
+
