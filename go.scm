@@ -73,9 +73,11 @@
 ;;
 ;; Note: **primary keys**, _external keys_.
 ;;
+;; We tried the sqlite3 of chicken-scheme but is not a portable install
+;; as desired. This is why we are going to try s-expressions as database
+;; first.
 
 (import args
-        sqlite3
         spiffy
         intarweb
         uri-common
@@ -85,21 +87,17 @@
         (chicken process-context))
 
 ;; Version of the software
-(define (version) "git-overview 0.0 by 1dotd4")
-
-;; Static things for tests
-(define (get-people-stt) "select * from people;")
-;; Test database is:
-;; create table people(email varchar(50) primary key, name varchar(50));
-;; insert into people values ('foo@here.net', 'foo');
-;; insert into people values ('bar@here.net', 'bar');
-
-(define (test-db)
-  (let* ((db (open-database "./test.sqlite3"))
-          (people (map-row (lambda (x y) `(,x ,y)) db (get-people-stt))))
-    (print people)))
+(define version "git-overview 0.0 by 1dotd4")
+(define data-file "./data")
 
 (server-port 6660)
+
+(define (try-sexp)
+  (let* ((data (call-with-input-file data-file read)))
+    (set! data (cons '(something to add here) data))
+    (print data)
+    (call-with-output-file data-file
+      (lambda (port) (write data port)))))
 
 (define (a-sample-data)
   '("@1dotd4" "feature/new-button" "5 minutes ago."))
@@ -280,7 +278,7 @@
                                                       
         (div (@ (class "container text-secondary text-center my-4 small"))
           (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-            (version)))
+            version))
 
       ;; - end body -
       )))
@@ -329,7 +327,7 @@
     (args:parse (command-line-arguments) opts)
   (cond ((equal? operation 'import)
           (print "Will import from " (alist-ref 'import options))
-          (test-db))
+          (try-sexp))
         ((equal? operation 'serve)
           (print "Will serve the database")
           (start-server)))) 

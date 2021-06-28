@@ -16,7 +16,7 @@ A simple overview of many git repositories.
 - Desktop, tablet and mobile view (Bootstrap).
 - Single program for importing repository and standalone server.
 - Webhook integration (TBD).
-- Portable SQLite3 database for data and configuration.
+- S-expressions as database.
 
 ## Running
 
@@ -29,7 +29,7 @@ A simple overview of many git repositories.
 ## Compiling
 
 - Install [chicken scheme](//call-cc.org).
-- Install dependencies: `chicken-install args spiffy sxml-serializer sqlite3`.
+- Install dependencies: `chicken-install args spiffy sxml-serializer`.
 - Compile with `csc -static go.scm`.
 
 Notes:

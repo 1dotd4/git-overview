@@ -7,3 +7,5 @@
 .#*.scm
 *.link
 *.sqlite3
+go
+data
