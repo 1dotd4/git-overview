@@ -49,7 +49,7 @@
 ;; ==[ Resolution ]==
 ;; 
 ;; In the future I *think* this document should be structured as follows:
-;; - Changelogs
+;; - Changelogs?
 ;; - Requirements analysis
 ;; - Design of the project
 ;; - Implementation
@@ -73,13 +73,31 @@
 ;;
 ;; Note: **primary keys**, _external keys_.
 ;;
- 
-(import spiffy
+
+(import args
+        sqlite3
+        spiffy
         intarweb
         uri-common
         sxml-serializer
+        (chicken port)
         (chicken format)
-        )
+        (chicken process-context))
+
+;; Version of the software
+(define (version) "git-overview 0.0 by 1dotd4")
+
+;; Static things for tests
+(define (get-people-stt) "select * from people;")
+;; Test database is:
+;; create table people(email varchar(50) primary key, name varchar(50));
+;; insert into people values ('foo@here.net', 'foo');
+;; insert into people values ('bar@here.net', 'bar');
+
+(define (test-db)
+  (let* ((db (open-database "./test.sqlite3"))
+          (people (map-row (lambda (x y) `(,x ,y)) db (get-people-stt))))
+    (print people)))
 
 (server-port 6660)
 
@@ -262,7 +280,7 @@
                                                       
         (div (@ (class "container text-secondary text-center my-4 small"))
           (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-            (format "Git overview - " "0.0" " - 1dotd4")))
+            (version)))
 
       ;; - end body -
       )))
@@ -283,4 +301,36 @@
 
 (vhost-map `((".*" . ,handle-greeting)))
 
-;; (start-server)
+
+;; This is used to choose an operation by options
+(define (operation) 'none)
+
+(define opts
+  (list (args:make-option (i import) (required: "REPOPATH") "Import from repository at path REPOPATH"
+          (set! operation 'import))
+        (args:make-option (s serve) #:none "Serve the database"
+          (set! operation 'serve))
+        (args:make-option (v V version) #:none "Display version"
+          (print (version))
+          (exit))
+        (args:make-option (h help) #:none "Display this text" (usage))))
+
+(define (usage)
+  (with-output-to-port (current-error-port)
+    (lambda ()
+      (print "Usage: " (car (argv)) " [options...] [files...]")
+      (newline)
+      (print (args:usage opts))
+      (print (version))))
+  (exit 1))
+
+;; "main"
+(receive (options operands)
+    (args:parse (command-line-arguments) opts)
+  (cond ((equal? operation 'import)
+          (print "Will import from " (alist-ref 'import options))
+          (test-db))
+        ((equal? operation 'serve)
+          (print "Will serve the database")
+          (start-server)))) 
+

@@ -20,8 +20,8 @@ A simple overview of many git repositories.
 
 ## Running
 
-- Import repositories with `git-overview import /path/to/git/repository`.
-- Run the server with `git-overview server`.
+- Import repositories with `git-overview --import /path/to/git/repository`.
+- Run the server with `git-overview --serve`.
 
 ## Help
 - man pages (TBD)
@@ -29,7 +29,7 @@ A simple overview of many git repositories.
 ## Compiling
 
 - Install [chicken scheme](//call-cc.org).
-- Install dependencies: `chicken-install spiffy sxml-serializer sqlite3`.
+- Install dependencies: `chicken-install args spiffy sxml-serializer sqlite3`.
 - Compile with `csc -static go.scm`.
 
 Notes:
