@@ -64,7 +64,7 @@
 ;; 
 ;; We would like to structure our database as follow:
 ;;
-;; Authors: **author**, nick, email
+;; Authors: **author**, email
 ;; Repositories: **repository**, name, url
 ;; Branches: **branch**, repository
 ;; BranchLabels: **group**, name
@@ -76,6 +76,41 @@
 ;; We tried the sqlite3 of chicken-scheme but is not a portable install
 ;; as desired. This is why we are going to try s-expressions as database
 ;; first.
+;;
+;; From the Logic Design above a possible s-expression could be:
+;;   (go
+;;      (authors
+;;        (author "name" "email")
+;;        ...
+;;        )
+;;      (branchlabels
+;;        (label "alabel" "regexp")
+;;        ...
+;;        )
+;;      (repositories
+;;        (repository "name"
+;;          (settings
+;;            (webhook ...)
+;;            (import-path ...)
+;;            )
+;;          (branches
+;;            (branch "stable"
+;;              (commits
+;;                (commit "hash" "author" "comment" "timestamp")
+;;                ...
+;;                ))
+;;            ...
+;;            ))
+;;        ...
+;;        )
+;;      (security
+;;        (basic-auth "admin" "password")
+;;        )
+;;      )
+;;
+;; Probably some data can be duplicated. For example each author could
+;; already have its own last update instead of searching between repositories.
+;; We will perform some benchmark on a test repository.
 
 (import args
         spiffy
