@@ -73,49 +73,16 @@
 ;;
 ;; Note: **primary keys**, _external keys_.
 ;;
-;; We tried the sqlite3 of chicken-scheme but is not a portable install
-;; as desired. This is why we are going to try s-expressions as database
-;; first.
-;;
-;; From the Logic Design above a possible s-expression could be:
-;;   (go
-;;      (authors
-;;        (author "name" "email")
-;;        ...
-;;        )
-;;      (branchlabels
-;;        (label "alabel" "regexp")
-;;        ...
-;;        )
-;;      (repositories
-;;        (repository "name"
-;;          (settings
-;;            (webhook ...)
-;;            (import-path ...)
-;;            )
-;;          (branches
-;;            (branch "stable"
-;;              (commits
-;;                (commit "hash" "author" "comment" "timestamp")
-;;                ...
-;;                ))
-;;            ...
-;;            ))
-;;        ...
-;;        )
-;;      (security
-;;        (basic-auth "admin" "password")
-;;        )
-;;      )
-;;
-;; Probably some data can be duplicated. For example each author could
-;; already have its own last update instead of searching between repositories.
-;; We will perform some benchmark on a test repository.
+;; We will use sql-de-lite as library for sqlite3 as the intended sqlite3
+;; is not as egonomic as wanted and need some extra configuration to make
+;; it work on all platforms. In addition sql-de-lite some higher order
+;; functions we can use already.
 
 (import args
         spiffy
         intarweb
         uri-common
+        sql-de-lite
         sxml-serializer
         (chicken port)
         (chicken format)
@@ -133,6 +100,19 @@
     (print data)
     (call-with-output-file data-file
       (lambda (port) (write data port)))))
+
+
+;; Test database is:
+;; create table people(email varchar(50) primary key, name varchar(50));
+;; insert into people values ('foo@here.net', 'foo');
+;; insert into people values ('bar@here.net', 'bar');
+(define (try-sqlite3)
+  (call-with-database "./data.sqlite3"
+    (lambda (db)
+      (begin
+        (print (query fetch-rows (sql db "select * from people")))
+        ))))
+      
 
 (define (a-sample-data)
   '("@1dotd4" "feature/new-button" "5 minutes ago."))
@@ -362,7 +342,7 @@
     (args:parse (command-line-arguments) opts)
   (cond ((equal? operation 'import)
           (print "Will import from " (alist-ref 'import options))
-          (try-sexp))
+          (try-sqlite3))
         ((equal? operation 'serve)
           (print "Will serve the database")
           (start-server)))) 
