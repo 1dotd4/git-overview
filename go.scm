@@ -84,34 +84,68 @@
         uri-common
         sql-de-lite
         sxml-serializer
+        (chicken io)
         (chicken port)
         (chicken format)
+        (chicken string)
+        (chicken process)
         (chicken process-context))
 
 ;; Version of the software
 (define version "git-overview 0.0 by 1dotd4")
-(define data-file "./data")
+(define data-file "./data.sqlite3")
 
 (server-port 6660)
-
-(define (try-sexp)
-  (let* ((data (call-with-input-file data-file read)))
-    (set! data (cons '(something to add here) data))
-    (print data)
-    (call-with-output-file data-file
-      (lambda (port) (write data port)))))
 
 
 ;; Test database is:
 ;; create table people(email varchar(50) primary key, name varchar(50));
 ;; insert into people values ('foo@here.net', 'foo');
 ;; insert into people values ('bar@here.net', 'bar');
-(define (try-sqlite3)
+
+;; create table repositories(name varchar(50) primary key , path varchar(100));
+
+(define (cmd-basename path) (format "basename ~A" path))
+(define (cmd-git-branch path) (format "git --no-pager --git-dir=~A branch" path))
+(define (cmd-git-log-dump path) (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path))
+
+(define (import-repository path)
   (call-with-database "./data.sqlite3"
     (lambda (db)
       (begin
-        (print (query fetch-rows (sql db "select * from people")))
-        ))))
+        (with-input-from-pipe (cmd-basename path)
+          (lambda ()
+            (let* ((basename (read-line)))
+              (dynamic-wind
+                (lambda () '())
+                (lambda ()
+                  (print (exec
+                        (sql db "insert into repositories values (?,?);")
+                        basename
+                        (format "~A.git" path))))
+                (lambda ()
+                  (begin 
+                    (print "This repository already exists")
+                    (close-database db)
+                    (exit)))
+                ))))))))
+
+(define (populate-repository-information repo)
+  (print (cadr repo))
+  (print (with-input-from-pipe (cmd-git-branch (cadr repo))
+  (lambda () (read-lines))))
+    (print (car (with-input-from-pipe (cmd-git-log-dump (cadr repo))
+                  (lambda ()
+                    (map
+                      (lambda (a) 
+                        (string-split a "\t" #t))
+                      (read-lines)))))))
+
+(define (fetch-repository-data)
+  (call-with-database data-file
+    (lambda (db)
+      (let* ((repositories (query fetch-all (sql db "select * from repositories;"))))
+        (map populate-repository-information repositories)))))
       
 
 (define (a-sample-data)
@@ -293,7 +327,7 @@
                                                       
         (div (@ (class "container text-secondary text-center my-4 small"))
           (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-            version))
+            ,version))
 
       ;; - end body -
       )))
@@ -342,8 +376,10 @@
     (args:parse (command-line-arguments) opts)
   (cond ((equal? operation 'import)
           (print "Will import from " (alist-ref 'import options))
-          (try-sqlite3))
+          (import-repository (alist-ref 'import options)))
         ((equal? operation 'serve)
           (print "Will serve the database")
-          (start-server)))) 
+          (start-server))
+        (else
+          (fetch-repository-data)))) 
 
