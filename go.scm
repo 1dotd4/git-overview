@@ -65,11 +65,13 @@
 ;; We would like to structure our database as follow:
 ;;
 ;; Authors: **author**, email
-;; Repositories: **repository**, name, url
+;; Repositories: **name**, path
 ;; Branches: **branch**, repository
+;; Commits: **hash**, **repository**, _branch_, _author_, comment, timestamp
+;;
+;; CommitParents: **hash**, **parent**
 ;; BranchLabels: **group**, name
 ;; GroupedBranches: _**branch**_, _**group**_
-;; Commits: **hash**, **repository**, _branch_, _author_, comment, timestamp
 ;;
 ;; Note: **primary keys**, _external keys_.
 ;;
@@ -77,6 +79,8 @@
 ;; is not as egonomic as wanted and need some extra configuration to make
 ;; it work on all platforms. In addition sql-de-lite some higher order
 ;; functions we can use already.
+;;
+;; TODO: explain all the details of issues found here.
 
 (import args
         spiffy
