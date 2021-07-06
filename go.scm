@@ -29,8 +29,8 @@
 ;; CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 ;; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 ;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-;;
-;; ==[ Introduction ]== 
+
+;; ==[ 0. Introduction ]== 
 ;; 
 ;; This project arise from the need of a clear view of what is going on in
 ;; a certain project. So the main question we want to answer are:
@@ -45,21 +45,89 @@
 ;;
 ;; The user manual (aka README.md) explains the features and requirements
 ;; for this project. Here we will discuss the design and implementation.
-;;
-;; ==[ Resolution ]==
+
+;; --< 0.1. Index >--
 ;; 
-;; In the future I *think* this document should be structured as follows:
-;; - Changelogs?
-;; - Requirements analysis
-;; - Design of the project
-;; - Implementation
-;;   - Development and debugging notes
-;;   - Command line explaination
-;;   - Data explaination
-;;   - Import explaination
-;;   - External webhook explaination
-;;   - Server explaination
+;; 1. Requirements analysis
+;; 2. Design of the project
+;; 3. Implementation
+;;   3.1. Development and debugging notes
+;;   3.2. Data explaination
+;;   3.3. Import explaination
+;;   3.4. External webhook explaination
+;;   3.5. Server explaination
+;;   3.6. Command line explaination
+
+;; ==[ 1. Requirements analysis ]==
 ;;
+;; The main part of this project is importing, organizing and displaying
+;; commits in a simple and undestandable way which allows to see the real
+;; history of a project composed of many repositories.
+;;
+;; We will leave out of this revision the OAuth APIs for querying for
+;; information a Cloud SCM like GitHub. We will focus on local repositories
+;; that are easy to maintain.
+;; 
+;; The experince should be linear:
+;; 1. install git-overview;
+;; 2. run `git-overview --import path/to/my-repo/` for each repository;
+;; 3. run `git-overview --serve` to check that everything is working;
+;; 4. setup it as a service and add a basic auth in front of it.
+;;
+;; The service will have a homepage and other two pages that display the
+;; status of the team and the project.
+
+;; ==[ 2. Design ]==
+;;
+;; We will use SQLite3 to store everything from configuration to repository
+;; data. This allow us to perform complex query without effort. There will
+;; be a selector to decide which action should the program perform. The
+;; main two are import and serve.
+;;
+;; The import action will only add the minimum information of the
+;; repository to the database.
+;;
+;; The serve action is composed of different tasks:
+;; - serve the web pages which are rendered from the query to the database;
+;; - periodically fetch the repositories and import latest commits.
+;;
+;; Other action will allow to set and get the configuration, for example
+;; the period of fetching or removing a repository.
+;;
+;; While the query to the database are straightforward, the fetch of the
+;; repository is composed of many steps:
+;;  1. perform `git fetch` on the repository
+;;  2. update branches
+;;  3. fetch latest commits
+;;  4. organize the commits in the database
+;;
+;; Having more tasks reading and writing can be a problem. Luckly SQLite3
+;; is threadsafe and if it happen to be slow it's possible to enable WAL.
+
+;; ==[ 3. Implementation ]==
+;; 
+;; --< 3.1. Development and debugging notes >--
+;;
+;; -.-. 3.1.1. Running and compiling
+;; 
+;; chicken-csi -s go.scm <add-here-options>
+;; chicken-csc -static go.scm
+
+;; -.-. 3.1.2. Database usage
+;;
+;; We will use sql-de-lite as library for sqlite3 as the intended sqlite3
+;; is not as egonomic as wanted and need some extra configuration to make
+;; it work on all platforms. In addition sql-de-lite some higher order
+;; functions we can use already. More information can be found here:
+;; https://wiki.call-cc.org/eggref/5/sql-de-lite
+
+;; ==[ Notes for next revision ]==
+;;
+;; - use the same pages
+;; - add authentication
+;; - add oauth
+;; - add api calls
+
 ;; ==[ Notes on data ]==
 ;; 
 ;; We would like to structure our database as follow:
@@ -75,15 +143,10 @@
 ;;
 ;; Note: **primary keys**, _external keys_.
 ;;
-;; We will use sql-de-lite as library for sqlite3 as the intended sqlite3
-;; is not as egonomic as wanted and need some extra configuration to make
-;; it work on all platforms. In addition sql-de-lite some higher order
-;; functions we can use already.
 ;;
 ;; TODO: explain all the details of issues found here.
 
-(import args
-        spiffy
+(import spiffy
         intarweb
         uri-common
         sql-de-lite
@@ -110,7 +173,7 @@
 ;; create table repositories(name varchar(50) primary key , path varchar(100));
 
 (define (cmd-basename path) (format "basename ~A" path))
-(define (cmd-git-branch path) (format "git --no-pager --git-dir=~A branch" path))
+(define (cmd-git-branch path) (format "git --no-pager --git-dir=~A branch -v --no-abbrev" path))
 (define (cmd-git-log-dump path) (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path))
 
 (define (import-repository path)
@@ -353,9 +416,15 @@
 (vhost-map `((".*" . ,handle-greeting)))
 
 
+;; --< 3.6 Command line implementation >--
+;; We are going to use the module `args`
+(import args)
+
 ;; This is used to choose an operation by options
 (define (operation) 'none)
 
+;; This is the list passed to args:parse to choose which option will be
+;; selected and validated.
 (define opts
   (list (args:make-option (i import) (required: "REPOPATH") "Import from repository at path REPOPATH"
           (set! operation 'import))
@@ -366,6 +435,8 @@
           (exit))
         (args:make-option (h help) #:none "Display this text" (usage))))
 
+;; This is a simple function that will show the usage in case 'help is
+;; selected or in the default case
 (define (usage)
   (with-output-to-port (current-error-port)
     (lambda ()
@@ -375,7 +446,8 @@
       (print (version))))
   (exit 1))
 
-;; "main"
+;; This is the main part of the program where it's decided which operation
+;; will be executed.
 (receive (options operands)
     (args:parse (command-line-arguments) opts)
   (cond ((equal? operation 'import)
