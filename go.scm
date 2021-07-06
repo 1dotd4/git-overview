@@ -45,7 +45,7 @@
 ;;
 ;; The user manual (aka README.md) explains the features and requirements
 ;; for this project. Here we will discuss the design and implementation.
-
+;;
 ;; --< 0.1. Index >--
 ;; 
 ;; 1. Requirements analysis
@@ -112,7 +112,7 @@
 ;; 
 ;; chicken-csi -s go.scm <add-here-options>
 ;; chicken-csc -static go.scm
-
+;;
 ;; -.-. 3.1.2. Database usage
 ;;
 ;; We will use sql-de-lite as library for sqlite3 as the intended sqlite3
@@ -127,7 +127,7 @@
 ;; - add authentication
 ;; - add oauth
 ;; - add api calls
-
+;;
 ;; ==[ Notes on data ]==
 ;; 
 ;; We would like to structure our database as follow:
@@ -146,38 +146,28 @@
 ;;
 ;; TODO: explain all the details of issues found here.
 
-(import spiffy
-        intarweb
-        uri-common
-        sql-de-lite
-        sxml-serializer
+(import sql-de-lite
         (chicken io)
-        (chicken port)
         (chicken format)
         (chicken string)
-        (chicken process)
-        (chicken process-context))
+        (chicken process))
 
 ;; Version of the software
-(define version "git-overview 0.0 by 1dotd4")
-(define data-file "./data.sqlite3")
-
-(server-port 6660)
+(define *version* "git-overview 0.0 by 1dotd4")
+(define *data-file* "./data.sqlite3")
+(define *selected-server-port* 6660)
 
 
 ;; Test database is:
 ;; create table people(email varchar(50) primary key, name varchar(50));
 ;; insert into people values ('foo@here.net', 'foo');
 ;; insert into people values ('bar@here.net', 'bar');
-
 ;; create table repositories(name varchar(50) primary key , path varchar(100));
-
 (define (cmd-basename path) (format "basename ~A" path))
 (define (cmd-git-branch path) (format "git --no-pager --git-dir=~A branch -v --no-abbrev" path))
 (define (cmd-git-log-dump path) (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path))
-
 (define (import-repository path)
-  (call-with-database "./data.sqlite3"
+  (call-with-database *data-file*
     (lambda (db)
       (begin
         (with-input-from-pipe (cmd-basename path)
@@ -196,7 +186,6 @@
                     (close-database db)
                     (exit)))
                 ))))))))
-
 (define (populate-repository-information repo)
   (print (cadr repo))
   (print (with-input-from-pipe (cmd-git-branch (cadr repo))
@@ -207,24 +196,15 @@
                       (lambda (a) 
                         (string-split a "\t" #t))
                       (read-lines)))))))
-
 (define (fetch-repository-data)
-  (call-with-database data-file
+  (call-with-database *data-file*
     (lambda (db)
       (let* ((repositories (query fetch-all (sql db "select * from repositories;"))))
         (map populate-repository-information repositories)))))
       
-
+;; --< 3.x Page rendering >--
 (define (a-sample-data)
   '("@1dotd4" "feature/new-button" "5 minutes ago."))
-
-(define (send-sxml-response sxml)
-    (with-headers `((connection close))
-                  (lambda ()
-                    (write-logged-response)))
-    (serialize-sxml sxml
-                    output: (response-port (current-response))))
-
 (define (data->sxml-card data)
   `(div (@ (class "col-lg-3 my-3 mx-auto"))
     (div (@ (class "card"))
@@ -233,7 +213,6 @@
         (h6 (@ (class "card-subtitle")) ,(cadr data)))
       (div (@ (class "card-footer")) (format "Last update "
                                              ,(caddr data))))))
-
 (define (data->sxml-compact-card data)
   `(div (@ (class "card my-3"))
     (div (@ (class "card-body"))
@@ -241,20 +220,17 @@
     (div (@ (class "card-footer"))
       (format "Last update "
               ,(caddr data)))))
-
 (define (activate-nav-button current-page expected)
   (format "nav-link text-~A"
     (if (equal? current-page expected)
       "light active"
       "secondary")))
-
 (define (build-people data)
   `(div (@ (class "container"))
     (p (@ (class "text-center text-muted mt-3 small"))
       "Tests a nice team")
     (div (@ (class "row my-3"))
       ,(map data->sxml-card data))))
-
 (define (build-repo data)
   `(div (@ (class "container"))
     (p (@ (class "text-center text-muted mt-3 small"))
@@ -274,7 +250,6 @@
                             (cdr x))))
             (cdr data)))
           ))))
-
 (define (build-user data)
   `(div (@ (class "container"))
     (form (@ (action "#") (method "POST"))
@@ -313,7 +288,6 @@
                           `(td ,y))
                         x)))
               (cdr data))))))))
-
 (define (build-page current-page)
   `(html
       (head
@@ -343,7 +317,6 @@
                 (a (@ (class ,(activate-nav-button current-page 'user))
                       (href "/user"))
                   "User")))))
-
         ,(cond ((equal? current-page 'people)
                   (build-people `(
                     ,(a-sample-data)
@@ -394,13 +367,24 @@
                                                       
         (div (@ (class "container text-secondary text-center my-4 small"))
           (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-            ,version))
-
+            ,*version*))
       ;; - end body -
       )))
 
-
-(define (handle-greeting continue)
+;; --< 3.x Webserver >--
+(import spiffy
+        intarweb
+        uri-common
+        sxml-serializer)
+;; Function to serialize and send SXML as HTML
+(define (send-sxml-response sxml)
+    (with-headers `((connection close))
+                  (lambda ()
+                    (write-logged-response)))
+    (serialize-sxml sxml
+                    output: (response-port (current-response))))
+;; Function that handles an HTTP requsest in spiffy
+(define (handle-request continue)
   (let* ((uri (request-uri (current-request))))
     (cond ((equal? (uri-path uri) '(/ ""))
             (send-sxml-response (build-page 'people)))
@@ -412,17 +396,16 @@
             (send-response status: 'ok body: "<h1>Hello world</h1>"))
           (else
             (send-response status: 'not-found body: )))))
-
-(vhost-map `((".*" . ,handle-greeting)))
-
+;; Map a any vhost to the main handler
+(vhost-map `((".*" . ,handle-request)))
 
 ;; --< 3.6 Command line implementation >--
 ;; We are going to use the module `args`
-(import args)
-
+(import args
+        (chicken port)
+        (chicken process-context))
 ;; This is used to choose an operation by options
 (define (operation) 'none)
-
 ;; This is the list passed to args:parse to choose which option will be
 ;; selected and validated.
 (define opts
@@ -431,10 +414,9 @@
         (args:make-option (s serve) #:none "Serve the database"
           (set! operation 'serve))
         (args:make-option (v V version) #:none "Display version"
-          (print (version))
+          (print *version*)
           (exit))
         (args:make-option (h help) #:none "Display this text" (usage))))
-
 ;; This is a simple function that will show the usage in case 'help is
 ;; selected or in the default case
 (define (usage)
@@ -443,9 +425,8 @@
       (print "Usage: " (car (argv)) " [options...] [files...]")
       (newline)
       (print (args:usage opts))
-      (print (version))))
+      (print *version*)))
   (exit 1))
-
 ;; This is the main part of the program where it's decided which operation
 ;; will be executed.
 (receive (options operands)
@@ -455,6 +436,9 @@
           (import-repository (alist-ref 'import options)))
         ((equal? operation 'serve)
           (print "Will serve the database")
+          ;; Set server port in spiffy
+          (server-port *selected-server-port*)
+          ;; Start spiffy web server as seen in §3.x
           (start-server))
         (else
           (fetch-repository-data)))) 
