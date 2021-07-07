@@ -57,6 +57,13 @@
 ;;   3.4. External webhook explaination
 ;;   3.5. Server explaination
 ;;   3.6. Command line explaination
+;;
+;; --< 0.2. Prelue >--
+;;
+;; Here we redefine lambda as λ.
+(define-syntax λ
+  (syntax-rules ()
+    ((_ param body ...) (lambda param body ...))))
 
 ;; ==[ 1. Requirements analysis ]==
 ;;
@@ -120,17 +127,34 @@
 ;; it work on all platforms. In addition sql-de-lite some higher order
 ;; functions we can use already. More information can be found here:
 ;; https://wiki.call-cc.org/eggref/5/sql-de-lite
+;;
+;; -.-. 3.1.3 Name convention
+;;
+;; We will keep the name convention of scheme for names as divided by a
+;; dash. The global variables are stated here and are starred before and
+;; after. Those can be set later from the options.
+;;
+;; - Version of the software
+(define *version* "git-overview 0.0 by 1dotd4")
+;; - Database path
+(define *data-file* "./data.sqlite3")
+;; - Selected server port
+(define *selected-server-port* 6660)
 
-;; ==[ Notes for next revision ]==
-;;
-;; - use the same pages
-;; - add authentication
-;; - add oauth
-;; - add api calls
-;;
-;; ==[ Notes on data ]==
+;; --< 3.2 Data explaination >--
 ;; 
-;; We would like to structure our database as follow:
+;; We import here the necessary library we need.
+(import sql-de-lite
+        (chicken io)
+        (chicken format)
+        (chicken string)
+        (chicken process))
+;;
+;; We store every commit in a table and for each commit we have a table for
+;; parents. In this way we can keep track of the tree and branches of each
+;; repository.
+;;
+;; The logic implementation of the database is:
 ;;
 ;; Authors: **author**, email
 ;; Repositories: **name**, path
@@ -143,20 +167,12 @@
 ;;
 ;; Note: **primary keys**, _external keys_.
 ;;
-;;
-;; TODO: explain all the details of issues found here.
-
-(import sql-de-lite
-        (chicken io)
-        (chicken format)
-        (chicken string)
-        (chicken process))
-
-;; Version of the software
-(define *version* "git-overview 0.0 by 1dotd4")
-(define *data-file* "./data.sqlite3")
-(define *selected-server-port* 6660)
-
+;; We check if the database exists and if not we create it.
+;;(define (check-database)
+;;  (if (??) ;; Here check if the database does not exists
+;;    (call-with-database *data-file*
+;;      (λ (db)
+;;        (begin ;; The statements to create the database needed start here.
 
 ;; Test database is:
 ;; create table people(email varchar(50) primary key, name varchar(50));
@@ -168,19 +184,19 @@
 (define (cmd-git-log-dump path) (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path))
 (define (import-repository path)
   (call-with-database *data-file*
-    (lambda (db)
+    (λ (db)
       (begin
         (with-input-from-pipe (cmd-basename path)
-          (lambda ()
+          (λ ()
             (let* ((basename (read-line)))
               (dynamic-wind
-                (lambda () '())
-                (lambda ()
+                (λ () '())
+                (λ ()
                   (print (exec
                         (sql db "insert into repositories values (?,?);")
                         basename
                         (format "~A.git" path))))
-                (lambda ()
+                (λ ()
                   (begin 
                     (print "This repository already exists")
                     (close-database db)
@@ -189,16 +205,16 @@
 (define (populate-repository-information repo)
   (print (cadr repo))
   (print (with-input-from-pipe (cmd-git-branch (cadr repo))
-  (lambda () (read-lines))))
+  (λ () (read-lines))))
     (print (car (with-input-from-pipe (cmd-git-log-dump (cadr repo))
-                  (lambda ()
+                  (λ ()
                     (map
-                      (lambda (a) 
+                      (λ (a) 
                         (string-split a "\t" #t))
                       (read-lines)))))))
 (define (fetch-repository-data)
   (call-with-database *data-file*
-    (lambda (db)
+    (λ (db)
       (let* ((repositories (query fetch-all (sql db "select * from repositories;"))))
         (map populate-repository-information repositories)))))
       
@@ -239,13 +255,13 @@
       (table (@ (class "table table-striped table-hover"))
         (thead
           (tr
-            ,(map (lambda (x) `(td ,x))
+            ,(map (λ (x) `(td ,x))
               (car data))))
         (tbody
-          ,(map (lambda (x)
+          ,(map (λ (x)
                   `(tr 
                       (td ,(car x))
-                      ,(map (lambda (y)
+                      ,(map (λ (y)
                               `(td ,(map data->sxml-compact-card y)))
                             (cdr x))))
             (cdr data)))
@@ -278,13 +294,13 @@
       (table (@ (class "table table-striped table-hover"))
         (thead
           (tr
-            ,(map (lambda (x) `(td ,x))
+            ,(map (λ (x) `(td ,x))
               '("hash" "repository" "branch" "comment" "date"))))
         (tbody
           (tr
-            ,(map (lambda (x)
+            ,(map (λ (x)
                     `(tr ;; Refactor this data->row
-                      ,(map (lambda (y)
+                      ,(map (λ (y)
                           `(td ,y))
                         x)))
               (cdr data))))))))
@@ -379,7 +395,7 @@
 ;; Function to serialize and send SXML as HTML
 (define (send-sxml-response sxml)
     (with-headers `((connection close))
-                  (lambda ()
+                  (λ ()
                     (write-logged-response)))
     (serialize-sxml sxml
                     output: (response-port (current-response))))
@@ -421,7 +437,7 @@
 ;; selected or in the default case
 (define (usage)
   (with-output-to-port (current-error-port)
-    (lambda ()
+    (λ ()
       (print "Usage: " (car (argv)) " [options...] [files...]")
       (newline)
       (print (args:usage opts))
@@ -442,4 +458,19 @@
           (start-server))
         (else
           (fetch-repository-data)))) 
+
+;; ==[ Notes for next revision ]==
+;;
+;; - use the same pages
+;; - add authentication
+;; - add oauth
+;; - add api calls
+;;
+;; ==[ Notes on data ]==
+;; 
+;; We would like to structure our database as follow:
+;;
+;;
+;;
+;; TODO: explain all the details of issues found here.
 
