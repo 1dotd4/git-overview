@@ -199,11 +199,11 @@
     (λ (db)
       (let* ((basename (get-basename path)))
         (condition-case ;; exceptions handler
-            (if (directory-exists? path)
+            (if (directory-exists? (format "~A.git" path))
               (begin ;; insert repository path
                 (exec (sql db "insert into repositories values (?,?);")
                       basename
-                      path)
+                      (format "~A.git" path))
                 (print "Successfully imported."))
               (print "Could not find .git directory"))
           [(exn sqlite) (print "This repository already exists")]
@@ -456,7 +456,7 @@
   (cond ((equal? operation 'import)
           (print "Will import from `" (alist-ref 'import options) ".git`.")
           (check-database)
-          (import-repository (format "~A.git" (alist-ref 'import options))))
+          (import-repository (alist-ref 'import options)))
         ((equal? operation 'serve)
           (print "Will serve the database")
           (check-database)
