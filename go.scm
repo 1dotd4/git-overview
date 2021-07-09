@@ -214,7 +214,9 @@
   (let ((repo-path (cadr repo)))
     (print repo-path)
     (print (get-git-branch repo-path))
-    (print (car get-git-log-dump))))
+    (print (car (get-git-log-dump repo-path))
+    (call-with-output-file "testing.data"
+      (λ (port) (write (get-git-log-dump repo-path) port))))))
 ;; doing
 (define (fetch-repository-data)
   (call-with-database *data-file*
