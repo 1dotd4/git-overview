@@ -178,40 +178,44 @@
           (exec (sql db "create table repositories(name varchar(50) primary key, path varchar(50));"))
           (exec (sql db "create table branches(branch varchar(50) primary key, repository varchar(50));"))
           (print "Database created."))))))
-
-(define (cmd-basename path) (format "basename ~A" path))
-(define (cmd-git-branch path) (format "git --no-pager --git-dir=~A branch -v --no-abbrev" path))
-(define (cmd-git-log-dump path) (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path))
+;; Function that takes the basename of a path
+(define (get-basename path)
+  (with-input-from-pipe (format "basename ~A" path)
+    (λ () (read-line))))
+;; Funciton that takes branches of a repository
+(define (get-git-branch path)
+  (with-input-from-pipe
+    (format "git --no-pager --git-dir=~A branch -v --no-abbrev" path)
+    (λ () (read-lines))))
+;; Funciton that takes logs of a repository
+(define (get-git-log-dump path)
+  (with-input-from-pipe (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path)
+    (λ () (map (λ (a) (string-split a "\t" #t))
+               (read-lines)))))
 ;; Function to import a repository from a path.
 ;; Will add only the path as it's the main loop to import the data.
 (define (import-repository path)
   (call-with-database *data-file* ;; open database
     (λ (db)
-      (begin
-        (with-input-from-pipe (cmd-basename path) ;; get basename
-          (λ ()
-            (let* ((basename (read-line)))
-              (condition-case ;; exceptions handler
-                  (if (directory-exists? path)
-                    (begin ;; insert repository path
-                      (exec (sql db "insert into repositories values (?,?);")
-                            basename
-                            path)
-                      (print "Successfully imported."))
-                    (print "Could not find .git directory"))
-                [(exn sqlite) (print "This repository already exists")]
-                [(exn) (print "Somthing else has occurred")]
-                [var () (print "Is this the finally?")]))))))))
+      (let* ((basename (get-basename path)))
+        (condition-case ;; exceptions handler
+            (if (directory-exists? path)
+              (begin ;; insert repository path
+                (exec (sql db "insert into repositories values (?,?);")
+                      basename
+                      path)
+                (print "Successfully imported."))
+              (print "Could not find .git directory"))
+          [(exn sqlite) (print "This repository already exists")]
+          [(exn) (print "Somthing else has occurred")]
+          [var () (print "Is this the finally?")])))))
+;; doing
 (define (populate-repository-information repo)
-  (print (cadr repo))
-  (print (with-input-from-pipe (cmd-git-branch (cadr repo))
-  (λ () (read-lines))))
-    (print (car (with-input-from-pipe (cmd-git-log-dump (cadr repo))
-                  (λ ()
-                    (map
-                      (λ (a) 
-                        (string-split a "\t" #t))
-                      (read-lines)))))))
+  (let ((repo-path (cadr repo)))
+    (print repo-path)
+    (print (get-git-branch repo-path))
+    (print (car get-git-log-dump))
+;; doing
 (define (fetch-repository-data)
   (call-with-database *data-file*
     (λ (db)
