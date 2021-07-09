@@ -145,6 +145,7 @@
 ;; 
 ;; We import here the necessary library we need.
 (import sql-de-lite
+        srfi-1
         (chicken io)
         (chicken file)
         (chicken format)
@@ -155,28 +156,72 @@
 ;; parents. In this way we can keep track of the tree and branches of each
 ;; repository.
 ;;
-;; The logic implementation of the database is:
 ;;
-;; Authors: **author**, email
-;; Repositories: **name**, path
-;; Branches: **branch**, repository
-;; Commits: **hash**, **repository**, _branch_, _author_, comment, timestamp
-;;
-;; CommitParents: **hash**, **parent**
 ;; BranchLabels: **group**, name
 ;; GroupedBranches: _**branch**_, _**group**_
 ;;
-;; Note: **primary keys**, _external keys_.
 ;;
 ;; We check if the database exists and if not we create it.
 (define (check-database)
   (if (not (file-exists? *data-file*)) ;; Here check if the database does not exists
     (call-with-database *data-file*
       (λ (db)
-        (begin ;; The statements to create the database needed start here.
-          (exec (sql db "create table people(email varchar(50) primary key, name varchar(50));"))
-          (exec (sql db "create table repositories(name varchar(50) primary key, path varchar(50));"))
-          (exec (sql db "create table branches(branch varchar(50) primary key, repository varchar(50));"))
+        (begin
+          ;; The logic implementation of the database is:
+          ;; People: **author**, email
+          (exec (sql db "create table people(
+  email varchar(50) primary key,
+  name varchar(50)
+);"))
+          ;; Repositories: **name**, path
+          (exec (sql db "create table repositories(
+  name varchar(50) primary key,
+  path varchar(50)
+);"))
+          ;; Branches: **branch**, _repository_
+          (exec (sql db "create table branches(
+  branch varchar(50) primary key,
+  repository varchar(50),
+  foreign key (repository)
+    references repositories (name)
+      on delete cascade
+      on update cascade
+);"))
+          ;; Commits: **hash**, _repository_, _author_, comment, timestamp
+          (exec (sql db "create table commits(
+  hash varchar(130) primary key,
+  repository varchar(50),
+  author varchar(50),
+  comment varchar(100),
+  timestamp integer,
+  foreign key (repository)
+    references repositories (name)
+      on delete cascade
+      on update cascade,
+  foreign key (author)
+    references people (email)
+      on delete no action
+      on update cascade
+);"))
+          ;; CommitParents: **hash**, **parent**
+          (exec (sql db "create table commitParents(
+  hash varchar(130),
+  parent varchar(130),
+  primary key (hash, parent),
+  foreign key (hash)
+    references commits (hash)
+      on update cascade
+      on delete cascade,
+  foreign key (parent)
+    references commits (hash)
+      on update cascade
+      on delete cascade
+);"))
+          ;; Others that will be added (maybe?)
+          ;; BranchLabels: group, name
+          ;; GroupedBranches: branch, group
+          ;; Those should help with grouping the table view
+          ;; Note: **primary keys**, _external keys_.
           (print "Database created."))))))
 ;; Function that takes the basename of a path
 (define (get-basename path)
@@ -209,20 +254,97 @@
           [(exn sqlite) (print "This repository already exists")]
           [(exn) (print "Somthing else has occurred")]
           [var () (print "Is this the finally?")])))))
-;; doing
+;; map a line to a list of records
+(define (commit-line->composed-data repo-name)
+  (λ (line)
+    `(  ;; the commit to add Commits
+        ( ,(car line)         ;; hash
+          ,repo-name          ;; repository name
+          ,(list-ref line 4)  ;; author email
+          ,(list-ref line 5)  ;; comment
+          ,(list-ref line 2)) ;; timestamp
+      ;; the parents to add to CommitParents
+      ,(map
+        (λ (parent)
+          (list (car line) parent))
+        (string-split (list-ref line 1)))
+      ;; save list of email and author name
+      ,(list  (list-ref line 4)  ;; author email
+              (list-ref line 3)) ;; author name
+    )))
+;; Add email only if it does not exists in alist
+(define (keep-unique-email alist)
+  (define (keep list-to-be-traversed traversed-list)
+    (cond
+      ((null? list-to-be-traversed)
+        traversed-list)
+      ((null? traversed-list)
+        (keep (cdr list-to-be-traversed) (list (car list-to-be-traversed))))
+      ((member (caar list-to-be-traversed) (map car traversed-list))
+        (keep (cdr list-to-be-traversed) traversed-list))
+      (else
+        (keep (cdr list-to-be-traversed) (cons (car list-to-be-traversed) traversed-list)))))
+  (keep alist '()))
+;; transpose data
+(define (composed-data->commits-parents-unique-authors2 composed-data)
+  (if (null? composed-data)
+      '()
+      (list (map car composed-data)
+            (map cadr composed-data)
+            (keep-unique-email (map caddr composed-data))
+            ))
+  )
+;; Function to populate data of a repository, returns a list with
 (define (populate-repository-information repo)
-  (let ((repo-path (cadr repo)))
+  (let ((repo-name (car repo))
+        (repo-path (cadr repo)))
     (print repo-path)
     (print (get-git-branch repo-path))
-    (print (car (get-git-log-dump repo-path))
-    (call-with-output-file "testing.data"
-      (λ (port) (write (get-git-log-dump repo-path) port))))))
-;; doing
+    ;; there will be here data of branches, not for now
+    (composed-data->commits-parents-unique-authors2
+        (map (commit-line->composed-data repo-name)
+          (get-git-log-dump repo-path)))))
+;; Function to populate data for each repository
 (define (fetch-repository-data)
   (call-with-database *data-file*
     (λ (db)
-      (let* ((repositories (query fetch-all (sql db "select * from repositories;"))))
-        (map populate-repository-information repositories)))))
+      (let* ((repositories (query fetch-all (sql db "select * from repositories;")))
+             (data-for-each-repository (map populate-repository-information repositories)))
+        (map
+          (λ (data-to-insert)
+            (begin
+              (print (caddr data-to-insert))
+              ;; try to add people
+              (map (λ (d)
+                    (condition-case
+                      (exec (sql db "insert into people values (?, ?);")
+                            (car d)
+                            (cadr d))
+                      [(exn sqlite) '()]))
+                (caddr data-to-insert))
+              ;; try to add commits
+              (map (λ (d)
+                    (condition-case
+                      (exec (sql db "insert into commits values (?, ?, ?, ?, ?);")
+                            (car d)
+                            (list-ref d 1)
+                            (list-ref d 2)
+                            (list-ref d 3)
+                            (list-ref d 4))
+                      [(exn sqlite) '()]))
+                (car data-to-insert))
+              ;; try to add commit parents
+              ;; WTF HERE?
+              (print (map car (cadr data-to-insert)))
+              (map (λ (d)
+                    (condition-case
+                      (exec (sql db "insert into commitparents values (?, ?);")
+                            (car d)
+                            (cadar d))
+                      [(exn sqlite) '()]))
+                (cadr data-to-insert))))
+          data-for-each-repository)
+        ))))
 
 ;; --< 3.x Page rendering >--
 (define (a-sample-data)
