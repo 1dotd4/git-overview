@@ -146,6 +146,7 @@
 ;; We import here the necessary library we need.
 (import sql-de-lite
         (chicken io)
+        (chicken file)
         (chicken format)
         (chicken string)
         (chicken process))
@@ -168,40 +169,39 @@
 ;; Note: **primary keys**, _external keys_.
 ;;
 ;; We check if the database exists and if not we create it.
-;;(define (check-database)
-;;  (if (??) ;; Here check if the database does not exists
-;;    (call-with-database *data-file*
-;;      (λ (db)
-;;        (begin ;; The statements to create the database needed start here.
+(define (check-database)
+  (if (not (file-exists? *data-file*)) ;; Here check if the database does not exists
+    (call-with-database *data-file*
+      (λ (db)
+        (begin ;; The statements to create the database needed start here.
+          (exec (sql db "create table people(email varchar(50) primary key, name varchar(50));"))
+          (exec (sql db "create table repositories(name varchar(50) primary key, path varchar(50));"))
+          (exec (sql db "create table branches(branch varchar(50) primary key, repository varchar(50));"))
+          (print "Database created."))))))
 
-;; Test database is:
-;; create table people(email varchar(50) primary key, name varchar(50));
-;; insert into people values ('foo@here.net', 'foo');
-;; insert into people values ('bar@here.net', 'bar');
-;; create table repositories(name varchar(50) primary key , path varchar(100));
 (define (cmd-basename path) (format "basename ~A" path))
 (define (cmd-git-branch path) (format "git --no-pager --git-dir=~A branch -v --no-abbrev" path))
 (define (cmd-git-log-dump path) (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path))
+;; Function to import a repository from a path.
+;; Will add only the path as it's the main loop to import the data.
 (define (import-repository path)
-  (call-with-database *data-file*
+  (call-with-database *data-file* ;; open database
     (λ (db)
       (begin
-        (with-input-from-pipe (cmd-basename path)
+        (with-input-from-pipe (cmd-basename path) ;; get basename
           (λ ()
             (let* ((basename (read-line)))
-              (dynamic-wind
-                (λ () '())
-                (λ ()
-                  (print (exec
-                        (sql db "insert into repositories values (?,?);")
-                        basename
-                        (format "~A.git" path))))
-                (λ ()
-                  (begin 
-                    (print "This repository already exists")
-                    (close-database db)
-                    (exit)))
-                ))))))))
+              (condition-case ;; exceptions handler
+                  (if (directory-exists? path)
+                    (begin ;; insert repository path
+                      (exec (sql db "insert into repositories values (?,?);")
+                            basename
+                            path)
+                      (print "Successfully imported."))
+                    (print "Could not find .git directory"))
+                [(exn sqlite) (print "This repository already exists")]
+                [(exn) (print "Somthing else has occurred")]
+                [var () (print "Is this the finally?")]))))))))
 (define (populate-repository-information repo)
   (print (cadr repo))
   (print (with-input-from-pipe (cmd-git-branch (cadr repo))
@@ -217,7 +217,7 @@
     (λ (db)
       (let* ((repositories (query fetch-all (sql db "select * from repositories;"))))
         (map populate-repository-information repositories)))))
-      
+
 ;; --< 3.x Page rendering >--
 (define (a-sample-data)
   '("@1dotd4" "feature/new-button" "5 minutes ago."))
@@ -448,10 +448,12 @@
 (receive (options operands)
     (args:parse (command-line-arguments) opts)
   (cond ((equal? operation 'import)
-          (print "Will import from " (alist-ref 'import options))
-          (import-repository (alist-ref 'import options)))
+          (print "Will import from `" (alist-ref 'import options) ".git`.")
+          (check-database)
+          (import-repository (format "~A.git" (alist-ref 'import options))))
         ((equal? operation 'serve)
           (print "Will serve the database")
+          (check-database)
           ;; Set server port in spiffy
           (server-port *selected-server-port*)
           ;; Start spiffy web server as seen in §3.x
