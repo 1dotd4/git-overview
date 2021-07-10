@@ -257,21 +257,21 @@
 ;; map a line to a list of records
 (define (commit-line->composed-data repo-name)
   (λ (line)
-    `(  ;; the commit to add Commits
+    `(
+        ;; save list of email and author name
+        ,(list  (list-ref line 4)  ;; author email
+                (list-ref line 3)) ;; author name
+        ;; the commit to add Commits
         ( ,(car line)         ;; hash
           ,repo-name          ;; repository name
           ,(list-ref line 4)  ;; author email
           ,(list-ref line 5)  ;; comment
           ,(list-ref line 2)) ;; timestamp
-      ;; the parents to add to CommitParents
-      ,(map
-        (λ (parent)
-          (list (car line) parent))
-        (string-split (list-ref line 1)))
-      ;; save list of email and author name
-      ,(list  (list-ref line 4)  ;; author email
-              (list-ref line 3)) ;; author name
-    )))
+        ;; the parents to add to CommitParents
+        ,(map
+          (λ (parent)
+              (list (car line) parent))
+          (string-split (list-ref line 1))))))
 ;; Add email only if it does not exists in alist
 (define (keep-unique-email alist)
   (define (keep list-to-be-traversed traversed-list)
@@ -286,24 +286,22 @@
         (keep (cdr list-to-be-traversed) (cons (car list-to-be-traversed) traversed-list)))))
   (keep alist '()))
 ;; transpose data
-(define (composed-data->commits-parents-unique-authors2 composed-data)
+(define (composed-data->commits-parents-unique-authors composed-data)
   (if (null? composed-data)
       '()
-      (list (map car composed-data)
+      (list (keep-unique-email (map car composed-data))
             (map cadr composed-data)
-            (keep-unique-email (map caddr composed-data))
-            ))
-  )
+            (join (map caddr composed-data)))))
 ;; Function to populate data of a repository, returns a list with
 (define (populate-repository-information repo)
   (let ((repo-name (car repo))
         (repo-path (cadr repo)))
-    (print repo-path)
-    (print (get-git-branch repo-path))
+    ;; (print repo-path)
+    ;; (print (get-git-branch repo-path))
     ;; there will be here data of branches, not for now
-    (composed-data->commits-parents-unique-authors2
+    (cons repo-name (composed-data->commits-parents-unique-authors
         (map (commit-line->composed-data repo-name)
-          (get-git-log-dump repo-path)))))
+          (get-git-log-dump repo-path))))))
 ;; Function to populate data for each repository
 (define (fetch-repository-data)
   (call-with-database *data-file*
@@ -313,7 +311,6 @@
         (map
           (λ (data-to-insert)
             (begin
-              (print (caddr data-to-insert))
               ;; try to add people
               (map (λ (d)
                     (condition-case
@@ -321,7 +318,7 @@
                             (car d)
                             (cadr d))
                       [(exn sqlite) '()]))
-                (caddr data-to-insert))
+                (cadr data-to-insert))
               ;; try to add commits
               (map (λ (d)
                     (condition-case
@@ -332,19 +329,31 @@
                             (list-ref d 3)
                             (list-ref d 4))
                       [(exn sqlite) '()]))
-                (car data-to-insert))
+                (caddr data-to-insert))
               ;; try to add commit parents
-              ;; WTF HERE?
-              (print (map car (cadr data-to-insert)))
               (map (λ (d)
                     (condition-case
                       (exec (sql db "insert into commitparents values (?, ?);")
                             (car d)
-                            (cadar d))
+                            (cadr d))
                       [(exn sqlite) '()]))
-                (cadr data-to-insert))))
-          data-for-each-repository)
-        ))))
+                (cadddr data-to-insert))
+              (print "Imported "
+                     (length (caddr data-to-insert))
+                     " commits from "
+                     (car data-to-insert))))
+          data-for-each-repository)))))
+(define (retrieve-last-people-activity)
+  (call-with-database *data-file*
+    (λ (db)
+      (query fetch-all (sql db "select p.name, c.repository, c.hash, c.timestamp
+  from ( select author, max(timestamp) as lastTimestamp
+         from commits
+         group by author ) as r
+    inner join commits as c
+      on r.author = c.author and r.lastTimestamp = c.timestamp
+    join people as p
+      on p.email = c.author;")))))
 
 ;; --< 3.x Page rendering >--
 (define (a-sample-data)
@@ -357,6 +366,14 @@
         (h6 (@ (class "card-subtitle")) ,(cadr data)))
       (div (@ (class "card-footer")) (format "Last update "
                                              ,(caddr data))))))
+(define (data->sxml-card2 data)
+  `(div (@ (class "col-lg-3 my-3 mx-auto"))
+    (div (@ (class "card"))
+      (div (@ (class "card-body"))
+        (h5 (@ (class "card-title")) ,(car data))
+        (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (caddr data))))
+      (div (@ (class "card-footer")) (format "Last update "
+                                             ,(cadddr data))))))
 (define (data->sxml-compact-card data)
   `(div (@ (class "card my-3"))
     (div (@ (class "card-body"))
@@ -374,7 +391,7 @@
     (p (@ (class "text-center text-muted mt-3 small"))
       "Tests a nice team")
     (div (@ (class "row my-3"))
-      ,(map data->sxml-card data))))
+      ,(map data->sxml-card2 data))))
 (define (build-repo data)
   `(div (@ (class "container"))
     (p (@ (class "text-center text-muted mt-3 small"))
@@ -462,15 +479,7 @@
                       (href "/user"))
                   "User")))))
         ,(cond ((equal? current-page 'people)
-                  (build-people `(
-                    ,(a-sample-data)
-                    ,(a-sample-data)
-                    ,(a-sample-data)
-                    ,(a-sample-data)
-                    ,(a-sample-data)
-                    ,(a-sample-data)
-                    ,(a-sample-data)
-                    )))
+                  (build-people (retrieve-last-people-activity)))
                 ((equal? current-page 'repo)
                   (build-repo `(
                     ("Repository" "stable" "feature/new-button" "feature/new-panel")
@@ -582,12 +591,19 @@
         ((equal? operation 'serve)
           (print "Will serve the database")
           (check-database)
+          ;; Fetch data from database
+          ;; TODO: this should be a coroutine
+          (fetch-repository-data)
           ;; Set server port in spiffy
           (server-port *selected-server-port*)
+          (print "The server is starting")
           ;; Start spiffy web server as seen in §3.x
           (start-server))
         (else
-          (fetch-repository-data)))) 
+          ;; This is to update the database will not be here
+          (check-database)
+          (fetch-repository-data)
+          (print (retrieve-last-people-activity))))) 
 
 ;; ==[ Notes for next revision ]==
 ;;
