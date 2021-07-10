@@ -371,7 +371,7 @@
     (div (@ (class "card"))
       (div (@ (class "card-body"))
         (h5 (@ (class "card-title")) ,(car data))
-        (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (caddr data))))
+        (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
       (div (@ (class "card-footer")) (format "Last update "
                                              ,(cadddr data))))))
 (define (data->sxml-compact-card data)
