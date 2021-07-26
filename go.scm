@@ -404,8 +404,9 @@
   (call-with-database *data-file*
     (λ (db)
       ;; TODO This is not enough
-      ;; First, branches forks (not merges) generate overhead
-      ;; Second some people is missing for some reason
+      ;; 1. Branches forks (not merges) generate overhead and UNION vs UNION ALL doesn't help
+      ;; 2. Some people is missing for some reason
+      ;; 3. Why do I need to group by
       (query fetch-all (sql db "
       with recursive commit_tree (hash, parent, head, branch_name, repository, depth) AS (
       select b.head, cp.parent, b.head, b.branch, b.repository, 0
