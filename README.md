@@ -1,5 +1,9 @@
 # Git Overview
-A simple overview of many git repositories.
+Save time on conflicts
+
+For developers with many repositories who need to track many repositories at once to see where other are working,
+the _git-overview is a simple overview of many git repositories_ that show in an organized way the latest changes of tracked repositories.
+Unlike git, this program aggregates multiple changes from many repositories in a simple web based dashboard.
 
 ## Main features
 - User status and current working branch and repository.
@@ -15,11 +19,9 @@ A simple overview of many git repositories.
 - No JavaScript.
 - Desktop, tablet and mobile view (Bootstrap).
 - Single program for importing repository and standalone server.
-- Webhook integration (TBD).
 - Portable SQLite3 database for data and configuration.
 
 ## Running
-
 - Import repositories with `git-overview --import /path/to/git/repository`.
 - Run the server with `git-overview --serve`.
 
@@ -27,7 +29,6 @@ A simple overview of many git repositories.
 - man pages (TBD)
 
 ## Compiling
-
 - Install [chicken scheme](//call-cc.org).
 - Install dependencies: `chicken-install args spiffy sxml-serializer sql-de-lite`.
 - Compile with `csc -static go.scm`.

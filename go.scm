@@ -170,53 +170,51 @@
           ;; The logic implementation of the database is:
           ;; People: **author**, email
           (exec (sql db "create table people(
-  email varchar(50) primary key,
-  name varchar(50)
-);"))
+                           email varchar(50) primary key,
+                           name varchar(50));"))
           ;; Repositories: **name**, path
           (exec (sql db "create table repositories(
-  name varchar(50) primary key,
-  path varchar(50)
-);"))
+                           name varchar(50) primary key,
+                           path varchar(50));"))
           ;; Branches: **branch**, _repository_
           (exec (sql db "create table branches(
-  branch varchar(50) primary key,
-  repository varchar(50),
-  foreign key (repository)
-    references repositories (name)
-      on delete cascade
-      on update cascade
-);"))
+                           branch varchar(50),
+                           head varchar(130),
+                           repository varchar(50),
+                           primary key (branch, repository),
+                           foreign key (repository)
+                             references repositories (name)
+                               on delete cascade
+                               on update cascade);"))
           ;; Commits: **hash**, _repository_, _author_, comment, timestamp
           (exec (sql db "create table commits(
-  hash varchar(130) primary key,
-  repository varchar(50),
-  author varchar(50),
-  comment varchar(100),
-  timestamp integer,
-  foreign key (repository)
-    references repositories (name)
-      on delete cascade
-      on update cascade,
-  foreign key (author)
-    references people (email)
-      on delete no action
-      on update cascade
-);"))
+                           hash varchar(130) primary key,
+                           repository varchar(50),
+                           author varchar(50),
+                           comment varchar(100),
+                           timestamp integer,
+                           foreign key (repository)
+                             references repositories (name)
+                               on delete cascade
+                               on update cascade,
+                           foreign key (author)
+                             references people (email)
+                               on delete no action
+                               on update cascade);"))
           ;; CommitParents: **hash**, **parent**
           (exec (sql db "create table commitParents(
-  hash varchar(130),
-  parent varchar(130),
-  primary key (hash, parent),
-  foreign key (hash)
-    references commits (hash)
-      on update cascade
-      on delete cascade,
-  foreign key (parent)
-    references commits (hash)
-      on update cascade
-      on delete cascade
-);"))
+                           hash varchar(130),
+                           parent varchar(130),
+                           repository varchar(50),
+                           primary key (hash, repository, parent),
+                           foreign key (hash)
+                             references commits (hash)
+                               on update cascade
+                               on delete cascade,
+                           foreign key (parent)
+                             references commits (hash)
+                               on update cascade
+                               on delete cascade);"))
           ;; Others that will be added (maybe?)
           ;; BranchLabels: group, name
           ;; GroupedBranches: branch, group
@@ -231,7 +229,13 @@
 (define (get-git-branch path)
   (with-input-from-pipe
     (format "git --no-pager --git-dir=~A branch -v --no-abbrev" path)
-    (λ () (read-lines))))
+    (λ () (map
+            (λ (line)
+              (let ((s (string-split line " " #t)))
+                (list
+                  (cadr s)
+                  (caddr s))))
+            (read-lines)))))
 ;; Funciton that takes logs of a repository
 (define (get-git-log-dump path)
   (with-input-from-pipe (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path)
@@ -296,12 +300,14 @@
 (define (populate-repository-information repo)
   (let ((repo-name (car repo))
         (repo-path (cadr repo)))
-    ;; (print repo-path)
-    ;; (print (get-git-branch repo-path))
     ;; there will be here data of branches, not for now
-    (cons repo-name (composed-data->commits-parents-unique-authors
-        (map (commit-line->composed-data repo-name)
-          (get-git-log-dump repo-path))))))
+    (cons 
+      repo-name 
+      (cons
+        (get-git-branch repo-path)
+        (composed-data->commits-parents-unique-authors
+          (map (commit-line->composed-data repo-name)
+            (get-git-log-dump repo-path)))))))
 ;; Function to populate data for each repository
 (define (fetch-repository-data)
   (call-with-database *data-file*
@@ -311,6 +317,19 @@
         (map
           (λ (data-to-insert)
             (begin
+              ;; reimport branches
+              (condition-case
+                (exec (sql db "delete from branches where repository = ?;")
+                      (car data-to-insert))
+                [(exn sqlite) '()])
+              (map (λ (d)
+                    (condition-case
+                      (exec (sql db "insert into branches values (?, ?, ?);")
+                            (car d)
+                            (cadr d)
+                            (car data-to-insert))
+                      [(exn sqlite) '()]))
+                (list-ref data-to-insert 1))
               ;; try to add people
               (map (λ (d)
                     (condition-case
@@ -318,7 +337,7 @@
                             (car d)
                             (cadr d))
                       [(exn sqlite) '()]))
-                (cadr data-to-insert))
+                (list-ref data-to-insert 2))
               ;; try to add commits
               (map (λ (d)
                     (condition-case
@@ -329,17 +348,18 @@
                             (list-ref d 3)
                             (list-ref d 4))
                       [(exn sqlite) '()]))
-                (caddr data-to-insert))
+                (list-ref data-to-insert 3))
               ;; try to add commit parents
               (map (λ (d)
                     (condition-case
-                      (exec (sql db "insert into commitparents values (?, ?);")
+                      (exec (sql db "insert into commitparents values (?, ?, ?);")
                             (car d)
-                            (cadr d))
+                            (cadr d)
+                            (car data-to-insert))
                       [(exn sqlite) '()]))
-                (cadddr data-to-insert))
+                (list-ref data-to-insert 4))
               (print "Imported "
-                     (length (caddr data-to-insert))
+                     (length (cadddr data-to-insert))
                      " commits from "
                      (car data-to-insert))))
           data-for-each-repository)))))
@@ -354,6 +374,62 @@
       on r.author = c.author and r.lastTimestamp = c.timestamp
     join people as p
       on p.email = c.author;")))))
+;; TODO: get branches
+;; Import branches.
+;; Recursive search
+;; WITH RECURSIVE commit_tree (hash, parent, head, branch_name, repository) AS (
+;;     SELECT branch_head, 0, branch_head, branch_name, repository
+;;     FROM branches
+;;   UNION ALL
+;;     SELECT cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
+;;     FROM commitParents cs, commit_tree ct
+;;     WHERE cs.parent = ct.hash AND ct.repository = cs.repository
+;; )
+;; SELECT ... ;; put here the needed select
+;; FROM ... INNER JOIN commit_tree as ct
+;;      on hash = ct.hash AND repository = ct.repository
+;; ...
+(define (retrieve-last-repository-activity)
+  (call-with-database *data-file*
+    (λ (db)
+      (query fetch-all (sql db "select p.name, c.repository, c.hash, c.timestamp
+  from ( select author, repository, max(timestamp) as lastTimestamp
+         from commits
+         group by author, repository ) as r
+  inner join commits as c
+    on r.author = c.author and r.lastTimestamp = c.timestamp and r.repository = c.repository
+  join people as p
+    on p.email = c.author;")))))
+(define (retrieve-last-people-activity2)
+  (call-with-database *data-file*
+    (λ (db)
+      ;; TODO This is not enough
+      ;; First, branches forks (not merges) generate overhead
+      ;; Second some people is missing for some reason
+      (query fetch-all (sql db "
+      with recursive commit_tree (hash, parent, head, branch_name, repository, depth) AS (
+      select b.head, cp.parent, b.head, b.branch, b.repository, 0
+        from branches as b
+          join commitParents as cp
+            on cp.hash = b.head and b.repository = cp.repository
+      UNION
+      select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository, ct.depth + 1
+      from commitParents as cs
+        join commit_tree as ct
+          on cs.repository = ct.repository and ct.parent = cs.hash
+      ) select p.name, c.repository, t.branch_name, c.timestamp
+      from (  select author, max(timestamp) as lastTimestamp
+              from commits
+              group by author ) as r
+        inner join commits as c
+          on r.author = c.author and r.lastTimestamp = c.timestamp
+        join people as p
+          on p.email = c.author
+        join commit_tree as t
+          on t.hash = c.hash and t.repository = c.repository
+      group by c.author;
+      ")))))
+  
 
 ;; --< 3.x Page rendering >--
 (define (a-sample-data)
@@ -371,9 +447,10 @@
     (div (@ (class "card"))
       (div (@ (class "card-body"))
         (h5 (@ (class "card-title")) ,(car data))
-        (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
+        (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (caddr data))))
       (div (@ (class "card-footer")) (format "Last update "
                                              ,(cadddr data))))))
+        ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
 (define (data->sxml-compact-card data)
   `(div (@ (class "card my-3"))
     (div (@ (class "card-body"))
@@ -381,6 +458,7 @@
     (div (@ (class "card-footer"))
       (format "Last update "
               ,(caddr data)))))
+;; TODO: duplicate this and make it generate a table as wanted below.
 (define (activate-nav-button current-page expected)
   (format "nav-link text-~A"
     (if (equal? current-page expected)
@@ -479,7 +557,7 @@
                       (href "/user"))
                   "User")))))
         ,(cond ((equal? current-page 'people)
-                  (build-people (retrieve-last-people-activity)))
+                  (build-people (retrieve-last-people-activity2)))
                 ((equal? current-page 'repo)
                   (build-repo `(
                     ("Repository" "stable" "feature/new-button" "feature/new-panel")
@@ -603,7 +681,7 @@
           ;; This is to update the database will not be here
           (check-database)
           (fetch-repository-data)
-          (print (retrieve-last-people-activity))))) 
+          (print (retrieve-last-repository-activity))))) 
 
 ;; ==[ Notes for next revision ]==
 ;;
