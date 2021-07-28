@@ -446,28 +446,27 @@
           (format-diff current-time (cadddr data)))))))
         ;; Was used to get the commit's first characters (7) just like the compact version is
         ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
-(define (data->sxml-compact-card data)
+(define (data->sxml-compact-card data current-time)
   `(div (@ (class "card my-3"))
     (div (@ (class "card-body"))
       (h5 (@ (class "card-title")) ,(car data)))
     (div (@ (class "card-footer"))
-      (format "Last update "
-              ,(caddr data)))))
+      ,(format "Last update ~A(s) ago."
+              (format-diff current-time (cadddr data))))))
 (define (activate-nav-button current-page expected)
   (format "nav-link text-~A"
     (if (equal? current-page expected)
       "light active"
       "secondary")))
 ;; Function that build a page for displaying last update for each committer
-(define (build-people data)
-  (let ((current-time (current-seconds)))
+(define (build-people data current-time)
     `(div (@ (class "container"))
       (p (@ (class "text-center text-muted mt-3 small"))
         "Tests a nice team")
       (div (@ (class "row my-3"))
-        ,(map (λ (d) (data->sxml-card d current-time)) data)))))
+        ,(map (λ (d) (data->sxml-card d current-time)) data))))
 ;; Funciton that build a page for displaying for each repository each branch and people on that branch
-(define (build-repo data)
+(define (build-repo data current-time)
   `(div (@ (class "container"))
     ,(map (λ (repo)
         `(div
@@ -477,10 +476,21 @@
             (table (@ (class "table table-striped table-hover"))
               (thead
                 (tr
-                  ,(map (λ (branches) `(td ,(list-ref (car branches) 2))) repo)))
+                  ,(map
+                    (λ (branches)
+                      `(td ,(list-ref 
+                              (car branches)
+                              2)))
+                    repo)))
               (tbody
                 (tr
-                  ,(map (λ (person) `(td ,(map data->sxml-compact-card person)))
+                  ,(map
+                    (λ (person)
+                      `(td
+                        ,(map
+                          (λ (d)
+                            (data->sxml-compact-card d current-time))
+                          person)))
                     repo)))))))
       data)))
 ;; TODO: finish frontend for selecting everything
@@ -525,59 +535,59 @@
               (cdr data))))))))
 ;; Function that build the appropriate page
 (define (build-page current-page)
-  `(html
-      (head
-        (meta (@ (charset "utf-8")))
-        (title ,(cond ((equal? current-page 'people) "People - Project X")
-                      ((equal? current-page 'repo) "Repositories - Project X")
-                      ((equal? current-page 'user) "User - Project X")
-                      (else "404 - Project X")))
-        (meta (@ (name "viewport") (content "width=device-width, initial-scale=1, shrink-to-fit=no")))
-        (meta (@ (name "author") (content "1dotd4")))
-        (link (@
-                (href "https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css")
-                (rel "stylesheet")
-                (integrity "sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC")
-                (crossorigin "anonymous"))))
-      (body
-        (div (@ (class "navbar navbar-expand-lg navbar-dark bg-dark static-top mb-3"))
-          (div (@ (class "container"))
-            (a (@ (class "navbar-brand") (href "/"))
-              "Git overview - Project X")
-            (ul (@ (class "nav ml-auto"))
-              (li (@ (class "nav-item"))
-                (a (@ (class ,(activate-nav-button current-page 'people))
-                      (href "/"))
-                  "People"))
-              (li (@ (class "nav-item"))
-                (a (@ (class ,(activate-nav-button current-page 'repo))
-                      (href "repo"))
-                  "Repositories"))
-              (li (@ (class "nav-item"))
-                (a (@ (class ,(activate-nav-button current-page 'user))
-                      (href "/user"))
-                  "User")))))
-        ,(cond ((equal? current-page 'people)
-                  (build-people (retrieve-last-people-activity)))
-                ((equal? current-page 'repo)
-                  (build-repo (retrieve-last-repository-activity)))
-                ((equal? current-page 'user)
-                  (build-user '("@1dotd4"
-                      ("c0ff33" "my-fancy-frontend" "stable" "release 1.2" "2021-05-13 1037")
-                      ("c0ff33" "my-fancy-frontend" "add-button" "finalize button" "2021-05-10 1137")
-                      ("c0ff33" "my-fancy-frontend" "add-button" "change color" "2021-05-05 1237")
-                      ("c0ff33" "my-fancy-frontend" "add-button" "add button" "2021-05-03 0937")
-                      ("c0ff33" "my-fancy-frontend" "stable" "release 1.1" "2021-04-25 1137")
-                      ("c0ff33" "my-fancy-frontend" "stable" "release 1.0" "2021-04-01 1537")
-                    )))
-              ;; '("hash" "repository" "branch" "comment" "date"))))
-                (else `(div (@ (class "container"))
-                        (p (@ (class "text-center text-muted mt-3 small"))
-                            "Page not found."))))
-                                                      
-        (div (@ (class "container text-secondary text-center my-4 small"))
-          (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-            ,*version*))))) ;; - end body -
+  (let ((current-time (current-seconds)))
+    `(html
+        (head
+          (meta (@ (charset "utf-8")))
+          (title ,(cond ((equal? current-page 'people) "People - Project X")
+                        ((equal? current-page 'repo) "Repositories - Project X")
+                        ((equal? current-page 'user) "User - Project X")
+                        (else "404 - Project X")))
+          (meta (@ (name "viewport") (content "width=device-width, initial-scale=1, shrink-to-fit=no")))
+          (meta (@ (name "author") (content "1dotd4")))
+          (link (@
+                  (href "https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css")
+                  (rel "stylesheet")
+                  (integrity "sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC")
+                  (crossorigin "anonymous"))))
+        (body
+          (div (@ (class "navbar navbar-expand-lg navbar-dark bg-dark static-top mb-3"))
+            (div (@ (class "container"))
+              (a (@ (class "navbar-brand") (href "/"))
+                "Git overview - Project X")
+              (ul (@ (class "nav ml-auto"))
+                (li (@ (class "nav-item"))
+                  (a (@ (class ,(activate-nav-button current-page 'people))
+                        (href "/"))
+                    "People"))
+                (li (@ (class "nav-item"))
+                  (a (@ (class ,(activate-nav-button current-page 'repo))
+                        (href "repo"))
+                    "Repositories"))
+                (li (@ (class "nav-item"))
+                  (a (@ (class ,(activate-nav-button current-page 'user))
+                        (href "/user"))
+                    "User")))))
+          ,(cond ((equal? current-page 'people)
+                    (build-people (retrieve-last-people-activity) current-time))
+                  ((equal? current-page 'repo)
+                    (build-repo (retrieve-last-repository-activity) current-time))
+                  ((equal? current-page 'user)
+                    (build-user '("@1dotd4"
+                        ("c0ff33" "my-fancy-frontend" "stable" "release 1.2" "2021-05-13 1037")
+                        ("c0ff33" "my-fancy-frontend" "add-button" "finalize button" "2021-05-10 1137")
+                        ("c0ff33" "my-fancy-frontend" "add-button" "change color" "2021-05-05 1237")
+                        ("c0ff33" "my-fancy-frontend" "add-button" "add button" "2021-05-03 0937")
+                        ("c0ff33" "my-fancy-frontend" "stable" "release 1.1" "2021-04-25 1137")
+                        ("c0ff33" "my-fancy-frontend" "stable" "release 1.0" "2021-04-01 1537")
+                      )))
+                ;; '("hash" "repository" "branch" "comment" "date"))))
+                  (else `(div (@ (class "container"))
+                          (p (@ (class "text-center text-muted mt-3 small"))
+                              "Page not found."))))
+          (div (@ (class "container text-secondary text-center my-4 small"))
+            (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
+              ,*version*)))))) ;; - end body -
 
 ;; --< 3.x Webserver >--
 (import spiffy
