@@ -364,44 +364,8 @@
                      " commits from "
                      (car data-to-insert))))
           data-for-each-repository)))))
+;; Function that query for last people activity
 (define (retrieve-last-people-activity)
-  (call-with-database *data-file*
-    (λ (db)
-      (query fetch-all (sql db "select p.name, c.repository, c.hash, c.timestamp
-  from ( select author, max(timestamp) as lastTimestamp
-         from commits
-         group by author ) as r
-    inner join commits as c
-      on r.author = c.author and r.lastTimestamp = c.timestamp
-    join people as p
-      on p.email = c.author;")))))
-;; TODO: get branches
-;; Import branches.
-;; Recursive search
-;; WITH RECURSIVE commit_tree (hash, parent, head, branch_name, repository) AS (
-;;     SELECT branch_head, 0, branch_head, branch_name, repository
-;;     FROM branches
-;;   UNION ALL
-;;     SELECT cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
-;;     FROM commitParents cs, commit_tree ct
-;;     WHERE cs.parent = ct.hash AND ct.repository = cs.repository
-;; )
-;; SELECT ... ;; put here the needed select
-;; FROM ... INNER JOIN commit_tree as ct
-;;      on hash = ct.hash AND repository = ct.repository
-;; ...
-(define (retrieve-last-repository-activity)
-  (call-with-database *data-file*
-    (λ (db)
-      (query fetch-all (sql db "select p.name, c.repository, c.hash, c.timestamp
-  from ( select author, repository, max(timestamp) as lastTimestamp
-         from commits
-         group by author, repository ) as r
-  inner join commits as c
-    on r.author = c.author and r.lastTimestamp = c.timestamp and r.repository = c.repository
-  join people as p
-    on p.email = c.author;")))))
-(define (retrieve-last-people-activity2)
   (call-with-database *data-file*
     (λ (db)
       (query fetch-all (sql db "
@@ -426,7 +390,8 @@
         join commit_tree as t
           on t.hash = c.hash and t.repository = c.repository
       group by c.author;")))))
-(define (retrieve-last-repository-activity2)
+;; Function that query for last repository activity
+(define (retrieve-last-repository-activity)
   (let* ((retrived-data (call-with-database *data-file*
                           (λ (db)
                             (query fetch-all (sql db "
@@ -455,24 +420,30 @@
         grouped-by-repository-and-branches))
 
 ;; --< 3.x Page rendering >--
-(define (a-sample-data)
-  '("@1dotd4" "feature/new-button" "5 minutes ago."))
-(define (data->sxml-card data)
-  `(div (@ (class "col-lg-3 my-3 mx-auto"))
-    (div (@ (class "card"))
-      (div (@ (class "card-body"))
-        (h5 (@ (class "card-title")) ,(car data))
-        (h6 (@ (class "card-subtitle")) ,(cadr data)))
-      (div (@ (class "card-footer")) (format "Last update "
-                                             ,(caddr data))))))
-(define (data->sxml-card2 data)
+(import (chicken time))
+;; Funciton to format how much ago a thing happened
+(define (format-diff current atime)
+  (let* ((abs-seconds (- current atime))
+         (seconds (modulo abs-seconds 60))
+         (minutes (quotient abs-seconds 60))
+         (hours (quotient minutes 60))
+         (days (quotient hours 24)))
+    (cond
+      ((> days 0) (format "~A day" days))
+      ((> hours 0) (format "~A hour" hours))
+      ((> minutes 0) (format "~A minute" minutes))
+      (else (format "~A second" seconds)))))
+(define (data->sxml-card data current-time)
   `(div (@ (class "col-lg-3 my-3 mx-auto"))
     (div (@ (class "card"))
       (div (@ (class "card-body"))
         (h5 (@ (class "card-title")) ,(car data))
         (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (caddr data))))
-      (div (@ (class "card-footer")) (format "Last update "
-                                             ,(cadddr data))))))
+      (div
+        (@ (class "card-footer"))
+        ,(format
+          "Last update ~A(s) ago."
+          (format-diff current-time (cadddr data)))))))
         ;; Was used to get the commit's first characters (7) just like the compact version is
         ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
 (define (data->sxml-compact-card data)
@@ -482,38 +453,21 @@
     (div (@ (class "card-footer"))
       (format "Last update "
               ,(caddr data)))))
-;; TODO: duplicate this and make it generate a table as wanted below.
 (define (activate-nav-button current-page expected)
   (format "nav-link text-~A"
     (if (equal? current-page expected)
       "light active"
       "secondary")))
+;; Function that build a page for displaying last update for each committer
 (define (build-people data)
-  `(div (@ (class "container"))
-    (p (@ (class "text-center text-muted mt-3 small"))
-      "Tests a nice team")
-    (div (@ (class "row my-3"))
-      ,(map data->sxml-card2 data))))
+  (let ((current-time (current-seconds)))
+    `(div (@ (class "container"))
+      (p (@ (class "text-center text-muted mt-3 small"))
+        "Tests a nice team")
+      (div (@ (class "row my-3"))
+        ,(map (λ (d) (data->sxml-card d current-time)) data)))))
+;; Funciton that build a page for displaying for each repository each branch and people on that branch
 (define (build-repo data)
-  `(div (@ (class "container"))
-    (p (@ (class "text-center text-muted mt-3 small"))
-      "Tests a busy project")
-    (div (@ (class "table-responsive"))
-      (table (@ (class "table table-striped table-hover"))
-        (thead
-          (tr
-            ,(map (λ (x) `(td ,x))
-              (car data))))
-        (tbody
-          ,(map (λ (x)
-                  `(tr 
-                      (td ,(car x))
-                      ,(map (λ (y)
-                              `(td ,(map data->sxml-compact-card y)))
-                            (cdr x))))
-            (cdr data)))
-          ))))
-(define (build-repo2 data)
   `(div (@ (class "container"))
     ,(map (λ (repo)
         `(div
@@ -529,6 +483,8 @@
                   ,(map (λ (person) `(td ,(map data->sxml-compact-card person)))
                     repo)))))))
       data)))
+;; TODO: finish frontend for selecting everything
+;; Function that build a page for searching commits
 (define (build-user data)
   `(div (@ (class "container"))
     (form (@ (action "#") (method "POST"))
@@ -567,6 +523,7 @@
                           `(td ,y))
                         x)))
               (cdr data))))))))
+;; Function that build the appropriate page
 (define (build-page current-page)
   `(html
       (head
@@ -577,7 +534,11 @@
                       (else "404 - Project X")))
         (meta (@ (name "viewport") (content "width=device-width, initial-scale=1, shrink-to-fit=no")))
         (meta (@ (name "author") (content "1dotd4")))
-        (link (@ (href "https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css") (rel "stylesheet") (integrity "sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC") (crossorigin "anonymous"))))
+        (link (@
+                (href "https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css")
+                (rel "stylesheet")
+                (integrity "sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC")
+                (crossorigin "anonymous"))))
       (body
         (div (@ (class "navbar navbar-expand-lg navbar-dark bg-dark static-top mb-3"))
           (div (@ (class "container"))
@@ -597,9 +558,9 @@
                       (href "/user"))
                   "User")))))
         ,(cond ((equal? current-page 'people)
-                  (build-people (retrieve-last-people-activity2)))
+                  (build-people (retrieve-last-people-activity)))
                 ((equal? current-page 'repo)
-                  (build-repo2 (retrieve-last-repository-activity2)))
+                  (build-repo (retrieve-last-repository-activity)))
                 ((equal? current-page 'user)
                   (build-user '("@1dotd4"
                       ("c0ff33" "my-fancy-frontend" "stable" "release 1.2" "2021-05-13 1037")
@@ -616,9 +577,7 @@
                                                       
         (div (@ (class "container text-secondary text-center my-4 small"))
           (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-            ,*version*))
-      ;; - end body -
-      )))
+            ,*version*))))) ;; - end body -
 
 ;; --< 3.x Webserver >--
 (import spiffy
@@ -698,8 +657,7 @@
         (else
           ;; This is to update the database will not be here
           (check-database)
-          (fetch-repository-data)
-          (print (retrieve-last-repository-activity2))))) 
+          (fetch-repository-data)))) 
 
 ;; ==[ Notes for next revision ]==
 ;;
