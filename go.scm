@@ -389,7 +389,8 @@
           on p.email = c.author
         join commit_tree as t
           on t.hash = c.hash and t.repository = c.repository
-      group by c.author;")))))
+      group by c.author
+      order by c.timestamp desc;")))))
 ;; Function that query for last repository activity
 (define (retrieve-last-repository-activity)
   (let* ((retrived-data (call-with-database *data-file*
@@ -414,7 +415,8 @@
           join people as p
             on p.email = c.author
           join commit_tree as t
-            on t.hash = c.hash and t.repository = c.repository;")))))
+            on t.hash = c.hash and t.repository = c.repository
+        order by c.timestamp asc;")))))
            (grouped-by-repository ((group-by (λ (d) (list-ref d 1))) retrived-data))
            (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository)))
         grouped-by-repository-and-branches))
@@ -470,7 +472,7 @@
   `(div (@ (class "container"))
     ,(map (λ (repo)
         `(div
-          (p (@ (class "text-center text-muted mt-3 small"))
+          (h3 (@ (class "mt-3"))
             ,(list-ref (car (car repo)) 1))
           (div (@ (class "table-responsive"))
             (table (@ (class "table table-striped table-hover"))
