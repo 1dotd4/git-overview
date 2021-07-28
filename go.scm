@@ -146,6 +146,7 @@
 ;; We import here the necessary library we need.
 (import sql-de-lite
         srfi-1
+        sort-combinators
         (chicken io)
         (chicken file)
         (chicken format)
@@ -403,22 +404,18 @@
 (define (retrieve-last-people-activity2)
   (call-with-database *data-file*
     (λ (db)
-      ;; TODO This is not enough
-      ;; 1. Branches forks (not merges) generate overhead and UNION vs UNION ALL doesn't help
-      ;; 2. Some people is missing for some reason
-      ;; 3. Why do I need to group by
       (query fetch-all (sql db "
-      with recursive commit_tree (hash, parent, head, branch_name, repository, depth) AS (
-      select b.head, cp.parent, b.head, b.branch, b.repository, 0
-        from branches as b
-          join commitParents as cp
-            on cp.hash = b.head and b.repository = cp.repository
+      with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
+      select b.head, cp.parent, b.head, b.branch, b.repository
+      from branches as b
+        join commitParents as cp
+          on cp.hash = b.head and b.repository = cp.repository
       UNION
-      select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository, ct.depth + 1
+      select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
       from commitParents as cs
         join commit_tree as ct
-          on cs.repository = ct.repository and ct.parent = cs.hash
-      ) select p.name, c.repository, t.branch_name, c.timestamp
+          on cs.repository = ct.repository and ct.parent = cs.hash and ct.parent <> cs.parent and ct.hash <> cs.hash
+      ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
       from (  select author, max(timestamp) as lastTimestamp
               from commits
               group by author ) as r
@@ -428,9 +425,34 @@
           on p.email = c.author
         join commit_tree as t
           on t.hash = c.hash and t.repository = c.repository
-      group by c.author;
-      ")))))
-  
+      group by c.author;")))))
+(define (retrieve-last-repository-activity2)
+  (let* ((retrived-data (call-with-database *data-file*
+                          (λ (db)
+                            (query fetch-all (sql db "
+        with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
+        select b.head, cp.parent, b.head, b.branch, b.repository
+        from branches as b
+          join commitParents as cp
+            on cp.hash = b.head and b.repository = cp.repository
+        UNION
+        select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
+        from commitParents as cs
+          join commit_tree as ct
+            on cs.repository = ct.repository and ct.parent = cs.hash and ct.parent <> cs.parent and ct.hash <> cs.hash
+        ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
+        from (  select author, repository, max(timestamp) as lastTimestamp
+                from commits
+                group by author, repository ) as r
+          inner join commits as c
+            on r.author = c.author and r.lastTimestamp = c.timestamp and r.repository = c.repository
+          join people as p
+            on p.email = c.author
+          join commit_tree as t
+            on t.hash = c.hash and t.repository = c.repository;")))))
+           (grouped-by-repository ((group-by (λ (d) (list-ref d 1))) retrived-data))
+           (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository)))
+        grouped-by-repository-and-branches))
 
 ;; --< 3.x Page rendering >--
 (define (a-sample-data)
@@ -451,6 +473,7 @@
         (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (caddr data))))
       (div (@ (class "card-footer")) (format "Last update "
                                              ,(cadddr data))))))
+        ;; Was used to get the commit's first characters (7) just like the compact version is
         ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
 (define (data->sxml-compact-card data)
   `(div (@ (class "card my-3"))
@@ -490,6 +513,22 @@
                             (cdr x))))
             (cdr data)))
           ))))
+(define (build-repo2 data)
+  `(div (@ (class "container"))
+    ,(map (λ (repo)
+        `(div
+          (p (@ (class "text-center text-muted mt-3 small"))
+            ,(list-ref (car (car repo)) 1))
+          (div (@ (class "table-responsive"))
+            (table (@ (class "table table-striped table-hover"))
+              (thead
+                (tr
+                  ,(map (λ (branches) `(td ,(list-ref (car branches) 2))) repo)))
+              (tbody
+                (tr
+                  ,(map (λ (person) `(td ,(map data->sxml-compact-card person)))
+                    repo)))))))
+      data)))
 (define (build-user data)
   `(div (@ (class "container"))
     (form (@ (action "#") (method "POST"))
@@ -560,29 +599,7 @@
         ,(cond ((equal? current-page 'people)
                   (build-people (retrieve-last-people-activity2)))
                 ((equal? current-page 'repo)
-                  (build-repo `(
-                    ("Repository" "stable" "feature/new-button" "feature/new-panel")
-                    ("our-fancy-core"
-                      ( ,(a-sample-data)
-                        ,(a-sample-data)
-                        ,(a-sample-data))
-                      ( ,(a-sample-data)
-                        ,(a-sample-data))
-                      ( ,(a-sample-data)
-                        ,(a-sample-data)
-                        ,(a-sample-data)
-                        ,(a-sample-data)))
-                    ("our-fancy-frontend"
-                      ( ,(a-sample-data)
-                        ,(a-sample-data)
-                        ,(a-sample-data))
-                      ( ,(a-sample-data)
-                        ,(a-sample-data))
-                      ( ,(a-sample-data)
-                        ,(a-sample-data)
-                        ,(a-sample-data)
-                        ,(a-sample-data)))
-                    )))
+                  (build-repo2 (retrieve-last-repository-activity2)))
                 ((equal? current-page 'user)
                   (build-user '("@1dotd4"
                       ("c0ff33" "my-fancy-frontend" "stable" "release 1.2" "2021-05-13 1037")
@@ -682,7 +699,7 @@
           ;; This is to update the database will not be here
           (check-database)
           (fetch-repository-data)
-          (print (retrieve-last-repository-activity))))) 
+          (print (retrieve-last-repository-activity2))))) 
 
 ;; ==[ Notes for next revision ]==
 ;;
