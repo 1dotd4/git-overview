@@ -229,13 +229,13 @@
 ;; Funciton that takes branches of a repository
 (define (get-git-branch path)
   (with-input-from-pipe
-    (format "git --no-pager --git-dir=~A branch -v --no-abbrev" path)
+    (format "git --no-pager --git-dir=~A branch -r -v --no-abbrev" path)
     (λ () (map
             (λ (line)
-              (let ((s (string-split line " " #t)))
+              (let ((s (string-split line " ")))
                 (list
-                  (cadr s)
-                  (caddr s))))
+                  (car s)
+                  (cadr s))))
             (read-lines)))))
 ;; Funciton that takes logs of a repository
 (define (get-git-log-dump path)
@@ -560,7 +560,7 @@
               (ul (@ (class "nav ml-auto"))
                 (li (@ (class "nav-item"))
                   (a (@ (class ,(activate-nav-button current-page 'people))
-                        (href "/"))
+                        (href "./"))
                     "People"))
                 (li (@ (class "nav-item"))
                   (a (@ (class ,(activate-nav-button current-page 'repo))
@@ -568,7 +568,7 @@
                     "Repositories"))
                 (li (@ (class "nav-item"))
                   (a (@ (class ,(activate-nav-button current-page 'user))
-                        (href "/user"))
+                        (href "user"))
                     "User")))))
           ,(cond ((equal? current-page 'people)
                     (build-people (retrieve-last-people-activity) current-time))
