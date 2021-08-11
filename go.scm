@@ -1,10 +1,10 @@
-;; Git overview - A simple overview of many git repositories.
-;;
+;;;; Git overview - A simple overview of many git repositories.
+
 ;; This project is licenced under BSD 3-Clause License which follows.
-;;
+
 ;; Copyright (c) 2021, 1. d4
 ;; All rights reserved.
-;; 
+
 ;; Redistribution and use in source and binary forms, with or without
 ;; modification, are permitted provided that the following conditions are met:
 ;; 
@@ -30,119 +30,117 @@
 ;; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 ;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-;; ==[ 0. Introduction ]== 
-;; 
-;; This project arise from the need of a clear view of what is going on in
-;; a certain project. So the main question we want to answer are:
-;;
-;; - What are the last thing everyone did?
-;; - What is the situation of the project? Where are developers working now?
-;; - What are the latest steps by a developer on the whole project?
-;; 
-;; To answer those question I wish a tool that does those query for me. The
-;; tool should be accessible from anyone so that no one can be excluded or
-;; hide from their responsibilities.
-;;
-;; The user manual (aka README.md) explains the features and requirements
-;; for this project. Here we will discuss the design and implementation.
-;;
-;; --< 0.1. Index >--
-;; 
-;; 1. Requirements analysis
-;; 2. Design of the project
-;; 3. Implementation
-;;   3.1. Development and debugging notes
-;;   3.2. Data explaination
-;;   3.3. Import explaination
-;;   3.4. External webhook explaination
-;;   3.5. Server explaination
-;;   3.6. Command line explaination
-;;
-;; --< 0.2. Prelue >--
-;;
-;; Here we redefine lambda as λ.
+;;;; ==[ 0. Introduction ]== 
+
+;;; This project arise from the need of a clear view of what is going on in
+;;; a certain project. So the main question we want to answer are:
+;;;
+;;; - What are the last thing everyone did?
+;;; - What is the situation of the project? Where are developers working now?
+;;; - What are the latest steps by a developer on the whole project?
+;;; 
+;;; To answer those question I wish a tool that does those query for me. The
+;;; tool should be accessible from anyone so that no one can be excluded or
+;;; hide from their responsibilities.
+;;;
+;;; The user manual (aka README.md) explains the features and requirements
+;;; for this project. Here we will discuss the design and implementation.
+
+;;;; 0.1. Index
+
+;;; 1. Requirements analysis
+;;; 2. Design of the project
+;;; 3. Implementation
+;;;   3.1. Development and debugging notes
+;;;   3.2. Data explaination
+;;;   3.3. Import explaination
+;;;   3.4. External webhook explaination
+;;;   3.5. Server explaination
+;;;   3.6. Command line explaination
+
+;;;; --< 0.2. Prelue >--
 (define-syntax λ
   (syntax-rules ()
     ((_ param body ...) (lambda param body ...))))
 
-;; ==[ 1. Requirements analysis ]==
-;;
-;; The main part of this project is importing, organizing and displaying
-;; commits in a simple and undestandable way which allows to see the real
-;; history of a project composed of many repositories.
-;;
-;; We will leave out of this revision the OAuth APIs for querying for
-;; information a Cloud SCM like GitHub. We will focus on local repositories
-;; that are easy to maintain.
-;; 
-;; The experince should be linear:
-;; 1. install git-overview;
-;; 2. run `git-overview --import path/to/my-repo/` for each repository;
-;; 3. run `git-overview --serve` to check that everything is working;
-;; 4. setup it as a service and add a basic auth in front of it.
-;;
-;; The service will have a homepage and other two pages that display the
-;; status of the team and the project.
+;;;; 1. Requirements analysis
 
-;; ==[ 2. Design ]==
-;;
-;; We will use SQLite3 to store everything from configuration to repository
-;; data. This allow us to perform complex query without effort. There will
-;; be a selector to decide which action should the program perform. The
-;; main two are import and serve.
-;;
-;; The import action will only add the minimum information of the
-;; repository to the database.
-;;
-;; The serve action is composed of different tasks:
-;; - serve the web pages which are rendered from the query to the database;
-;; - periodically fetch the repositories and import latest commits.
-;;
-;; Other action will allow to set and get the configuration, for example
-;; the period of fetching or removing a repository.
-;;
-;; While the query to the database are straightforward, the fetch of the
-;; repository is composed of many steps:
-;;  1. perform `git fetch` on the repository
-;;  2. update branches
-;;  3. fetch latest commits
-;;  4. organize the commits in the database
-;;
-;; Having more tasks reading and writing can be a problem. Luckly SQLite3
-;; is threadsafe and if it happen to be slow it's possible to enable WAL.
+;;; The main part of this project is importing, organizing and displaying
+;;; commits in a simple and undestandable way which allows to see the real
+;;; history of a project composed of many repositories.
+;;;
+;;; We will leave out of this revision the OAuth APIs for querying for
+;;; information a Cloud SCM like GitHub. We will focus on local repositories
+;;; that are easy to maintain.
+;;; 
+;;; The experince should be linear:
+;;; 1. install git-overview;
+;;; 2. run `git-overview --import path/to/my-repo/` for each repository;
+;;; 3. run `git-overview --serve` to check that everything is working;
+;;; 4. setup it as a service and add a basic auth in front of it.
+;;;
+;;; The service will have a homepage and other two pages that display the
+;;; status of the team and the project.
 
-;; ==[ 3. Implementation ]==
-;; 
-;; --< 3.1. Development and debugging notes >--
-;;
-;; -.-. 3.1.1. Running and compiling
-;; 
-;; chicken-csi -s go.scm <add-here-options>
-;; chicken-csc -static go.scm
-;;
-;; -.-. 3.1.2. Database usage
-;;
-;; We will use sql-de-lite as library for sqlite3 as the intended sqlite3
-;; is not as egonomic as wanted and need some extra configuration to make
-;; it work on all platforms. In addition sql-de-lite some higher order
-;; functions we can use already. More information can be found here:
-;; https://wiki.call-cc.org/eggref/5/sql-de-lite
-;;
-;; -.-. 3.1.3 Name convention
-;;
-;; We will keep the name convention of scheme for names as divided by a
-;; dash. The global variables are stated here and are starred before and
-;; after. Those can be set later from the options.
-;;
-;; - Version of the software
-(define *version* "git-overview 0.0 by 1dotd4")
-;; - Database path
+;;;; ==[ 2. Design ]==
+
+;;; We will use SQLite3 to store everything from configuration to repository
+;;; data. This allow us to perform complex query without effort. There will
+;;; be a selector to decide which action should the program perform. The
+;;; main two are import and serve.
+;;;
+;;; The import action will only add the minimum information of the
+;;; repository to the database.
+;;;
+;;; The serve action is composed of different tasks:
+;;; - serve the web pages which are rendered from the query to the database;
+;;; - periodically fetch the repositories and import latest commits.
+;;;
+;;; Other action will allow to set and get the configuration, for example
+;;; the period of fetching or removing a repository.
+;;;
+;;; While the query to the database are straightforward, the fetch of the
+;;; repository is composed of many steps:
+;;;  1. perform `git fetch` on the repository
+;;;  2. update branches
+;;;  3. fetch latest commits
+;;;  4. organize the commits in the database
+;;;
+;;; Having more tasks reading and writing can be a problem. Luckly SQLite3
+;;; is threadsafe and if it happen to be slow it's possible to enable WAL.
+
+;;;; 3. Implementation
+
+;;;; 3.1. Development and debugging notes
+
+;;;; 3.1.1. Running and compiling
+
+;;; chicken-csi -s go.scm <add-here-options>
+;;; chicken-csc -static go.scm
+
+;;;; 3.1.2. Database usage
+
+;;; We will use sql-de-lite as library for sqlite3 as the intended sqlite3
+;;; is not as egonomic as wanted and need some extra configuration to make
+;;; it work on all platforms. In addition sql-de-lite some higher order
+;;; functions we can use already. More information can be found here:
+;;; https://wiki.call-cc.org/eggref/5/sql-de-lite
+
+;;;; 3.1.3 Name convention
+
+;;; We will keep the name convention of scheme for names as divided by a
+;;; dash. The global variables are stated here and are starred before and
+;;; after. Those can be set later from the options.
+
+;; Version of the software
+(define VERSION "git-overview 0.0 by 1dotd4")
+;; Database path
 (define *data-file* "./data.sqlite3")
-;; - Selected server port
+;; Selected server port
 (define *selected-server-port* 6660)
 
-;; --< 3.2 Data explaination >--
-;; 
+;;;; 3.2 Data explaination
+
 ;; We import here the necessary library we need.
 (import sql-de-lite
         srfi-1
@@ -152,19 +150,17 @@
         (chicken format)
         (chicken string)
         (chicken process))
-;;
-;; We store every commit in a table and for each commit we have a table for
-;; parents. In this way we can keep track of the tree and branches of each
-;; repository.
-;;
-;;
-;; BranchLabels: **group**, name
-;; GroupedBranches: _**branch**_, _**group**_
-;;
-;;
-;; We check if the database exists and if not we create it.
+
+;;; We store every commit in a table and for each commit we have a table for
+;;; parents. In this way we can keep track of the tree and branches of each
+;;; repository.
+
+;;; BranchLabels: **group**, name
+;;; GroupedBranches: _**branch**_, _**group**_
+
 (define (check-database)
-  (if (not (file-exists? *data-file*)) ;; Here check if the database does not exists
+  ;; We check if the database exists and if not we create it.
+  (if (not (file-exists? *data-file*)) ; Here check if the database does not exists
     (call-with-database *data-file*
       (λ (db)
         (begin
@@ -222,12 +218,14 @@
           ;; Those should help with grouping the table view
           ;; Note: **primary keys**, _external keys_.
           (print "Database created."))))))
-;; Function that takes the basename of a path
+
 (define (get-basename path)
+  ;; Function that takes the basename of a path
   (with-input-from-pipe (format "basename ~A" path)
     (λ () (read-line))))
-;; Funciton that takes branches of a repository
+
 (define (get-git-branch path)
+  ;; Funciton that takes branches of a repository
   (with-input-from-pipe
     (format "git --no-pager --git-dir=~A branch -r -v --no-abbrev" path)
     (λ () (map
@@ -237,14 +235,16 @@
                   (car s)
                   (cadr s))))
             (read-lines)))))
-;; Funciton that takes logs of a repository
+
 (define (get-git-log-dump path)
+  ;; Funciton that takes logs of a repository
   (with-input-from-pipe (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path)
     (λ () (map (λ (a) (string-split a "\t" #t))
                (read-lines)))))
-;; Function to import a repository from a path.
-;; Will add only the path as it's the main loop to import the data.
+
 (define (import-repository path)
+  ;; Function to import a repository from a path.
+  ;; Will add only the path as it's the main loop to import the data.
   (call-with-database *data-file* ;; open database
     (λ (db)
       (let* ((basename (get-basename path)))
@@ -259,8 +259,9 @@
           [(exn sqlite) (print "This repository already exists")]
           [(exn) (print "Somthing else has occurred")]
           [var () (print "Is this the finally?")])))))
-;; map a line to a list of records
+
 (define (commit-line->composed-data repo-name)
+  ;; map a line to a list of records
   (λ (line)
     `(
         ;; save list of email and author name
@@ -277,8 +278,9 @@
           (λ (parent)
               (list (car line) parent))
           (string-split (list-ref line 1))))))
-;; Add email only if it does not exists in alist
+
 (define (keep-unique-email alist)
+  ;; Add email only if it does not exists in alist
   (define (keep list-to-be-traversed traversed-list)
     (cond
       ((null? list-to-be-traversed)
@@ -290,15 +292,17 @@
       (else
         (keep (cdr list-to-be-traversed) (cons (car list-to-be-traversed) traversed-list)))))
   (keep alist '()))
-;; transpose data
+
 (define (composed-data->commits-parents-unique-authors composed-data)
+  ;; transpose data
   (if (null? composed-data)
       '()
       (list (keep-unique-email (map car composed-data))
             (map cadr composed-data)
             (join (map caddr composed-data)))))
-;; Function to populate data of a repository, returns a list with
+
 (define (populate-repository-information repo)
+  ;; Function to populate data of a repository, returns a list with
   (let ((repo-name (car repo))
         (repo-path (cadr repo)))
     ;; there will be here data of branches, not for now
@@ -309,8 +313,9 @@
         (composed-data->commits-parents-unique-authors
           (map (commit-line->composed-data repo-name)
             (get-git-log-dump repo-path)))))))
-;; Function to populate data for each repository
+
 (define (fetch-repository-data)
+  ;; Function to populate data for each repository
   (call-with-database *data-file*
     (λ (db)
       (let* ((repositories (query fetch-all (sql db "select * from repositories;")))
@@ -364,8 +369,9 @@
                      " commits from "
                      (car data-to-insert))))
           data-for-each-repository)))))
-;; Function that query for last people activity
+
 (define (retrieve-last-people-activity)
+  ;; Function that query for last people activity
   (call-with-database *data-file*
     (λ (db)
       (query fetch-all (sql db "
@@ -391,8 +397,9 @@
           on t.hash = c.hash and t.repository = c.repository
       group by c.author
       order by c.timestamp desc;")))))
-;; Function that query for last repository activity
+
 (define (retrieve-last-repository-activity)
+  ;; Function that query for last repository activity
   (let* ((retrived-data (call-with-database *data-file*
                           (λ (db)
                             (query fetch-all (sql db "
@@ -421,10 +428,11 @@
            (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository)))
         grouped-by-repository-and-branches))
 
-;; --< 3.x Page rendering >--
+;;;; 3.x Page rendering
 (import (chicken time))
-;; Funciton to format how much ago a thing happened
+
 (define (format-diff current atime)
+  ;; Funciton to format how much ago a thing happened
   (let* ((abs-seconds (- current atime))
          (seconds (modulo abs-seconds 60))
          (minutes (quotient abs-seconds 60))
@@ -435,6 +443,7 @@
       ((> hours 0) (format "~A hour" hours))
       ((> minutes 0) (format "~A minute" minutes))
       (else (format "~A second" seconds)))))
+
 (define (data->sxml-card data current-time)
   `(div (@ (class "col-lg-3 my-3 mx-auto"))
     (div (@ (class "card"))
@@ -448,6 +457,7 @@
           (format-diff current-time (cadddr data)))))))
         ;; Was used to get the commit's first characters (7) just like the compact version is
         ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
+
 (define (data->sxml-compact-card data current-time)
   `(div (@ (class "card my-3"))
     (div (@ (class "card-body"))
@@ -455,20 +465,23 @@
     (div (@ (class "card-footer"))
       ,(format "Last update ~A(s) ago."
               (format-diff current-time (cadddr data))))))
+
 (define (activate-nav-button current-page expected)
   (format "nav-link text-~A"
     (if (equal? current-page expected)
       "light active"
       "secondary")))
-;; Function that build a page for displaying last update for each committer
+
 (define (build-people data current-time)
-    `(div (@ (class "container"))
-      (p (@ (class "text-center text-muted mt-3 small"))
-        "Tests a nice team")
-      (div (@ (class "row my-3"))
-        ,(map (λ (d) (data->sxml-card d current-time)) data))))
-;; Funciton that build a page for displaying for each repository each branch and people on that branch
+  ;; Function that build a page for displaying last update for each committer
+  `(div (@ (class "container"))
+    (p (@ (class "text-center text-muted mt-3 small"))
+      "Tests a nice team")
+    (div (@ (class "row my-3"))
+      ,(map (λ (d) (data->sxml-card d current-time)) data))))
+
 (define (build-repo data current-time)
+  ;; Funciton that build a page for displaying for each repository each branch and people on that branch
   `(div (@ (class "container"))
     ,(map (λ (repo)
         `(div
@@ -495,9 +508,10 @@
                           person)))
                     repo)))))))
       data)))
-;; TODO: finish frontend for selecting everything
-;; Function that build a page for searching commits
+
 (define (build-user data)
+  ;; TODO: finish frontend for selecting everything
+  ;; Function that build a page for searching commits
   `(div (@ (class "container"))
     (form (@ (action "#") (method "POST"))
       (div (@ (class "row my-3"))
@@ -535,8 +549,9 @@
                           `(td ,y))
                         x)))
               (cdr data))))))))
-;; Function that build the appropriate page
+
 (define (build-page current-page)
+  ;; Function that build the appropriate page
   (let ((current-time (current-seconds)))
     `(html
         (head
@@ -589,22 +604,24 @@
                               "Page not found."))))
           (div (@ (class "container text-secondary text-center my-4 small"))
             (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-              ,*version*)))))) ;; - end body -
+              ,VERSION)))))) ;; - end body -
 
-;; --< 3.x Webserver >--
+;;;; 3.x Webserver
 (import spiffy
         intarweb
         uri-common
         sxml-serializer)
-;; Function to serialize and send SXML as HTML
+
 (define (send-sxml-response sxml)
-    (with-headers `((connection close))
-                  (λ ()
-                    (write-logged-response)))
-    (serialize-sxml sxml
-                    output: (response-port (current-response))))
-;; Function that handles an HTTP requsest in spiffy
+  ;; Function to serialize and send SXML as HTML
+  (with-headers `((connection close))
+                (λ ()
+                  (write-logged-response)))
+  (serialize-sxml sxml
+                  output: (response-port (current-response))))
+
 (define (handle-request continue)
+  ;; Function that handles an HTTP requsest in spiffy
   (let* ((uri (request-uri (current-request))))
     (cond ((equal? (uri-path uri) '(/ ""))
             (send-sxml-response (build-page 'people)))
@@ -616,41 +633,45 @@
             (send-response status: 'ok body: "<h1>Hello world</h1>"))
           (else
             (send-response status: 'not-found body: )))))
+
 ;; Map a any vhost to the main handler
 (vhost-map `((".*" . ,handle-request)))
 
-;; --< 3.6 Command line implementation >--
-;; We are going to use the module `args`
+;;;; 3.6 Command line implementation
 (import args
         (chicken port)
         (chicken process-context))
+
 ;; This is used to choose an operation by options
 (define (operation) 'none)
-;; This is the list passed to args:parse to choose which option will be
-;; selected and validated.
+
 (define opts
+  ;; List passed to args:parse to choose which option will be selected and validated.
   (list (args:make-option (i import) (required: "REPOPATH") "Import from repository at path REPOPATH"
           (set! operation 'import))
         (args:make-option (s serve) #:none "Serve the database"
           (set! operation 'serve))
         (args:make-option (v V version) #:none "Display version"
-          (print *version*)
+          (print VERSION)
           (exit))
         (args:make-option (h help) #:none "Display this text" (usage))))
-;; This is a simple function that will show the usage in case 'help is
-;; selected or in the default case
+
 (define (usage)
+  ;; Function that will show the usage in case 'help is selected or in the
+  ;; default case
   (with-output-to-port (current-error-port)
     (λ ()
       (print "Usage: " (car (argv)) " [options...] [files...]")
       (newline)
       (print (args:usage opts))
-      (print *version*)))
+      (print VERSION)))
   (exit 1))
-;; This is the main part of the program where it's decided which operation
-;; will be executed.
-(receive (options operands)
-    (args:parse (command-line-arguments) opts)
+
+(receive
+  ;; This is the main part of the program where it's decided which operation
+  ;; will be executed.
+  (options operands)
+  (args:parse (command-line-arguments) opts)
   (cond ((equal? operation 'import)
           (print "Will import from `" (alist-ref 'import options) ".git`.")
           (check-database)
@@ -671,18 +692,14 @@
           (check-database)
           (fetch-repository-data)))) 
 
-;; ==[ Notes for next revision ]==
-;;
-;; - use the same pages
-;; - add authentication
-;; - add oauth
-;; - add api calls
-;;
-;; ==[ Notes on data ]==
-;; 
-;; We would like to structure our database as follow:
-;;
-;;
-;;
-;; TODO: explain all the details of issues found here.
+;;;; Notes for next revision
+
+;;; - use the same pages
+;;; - add authentication
+;;; - add oauth
+;;; - add api calls
+
+;;;; Notes on data
+
+;;; TODO: explain all the details of issues found here.
 
