@@ -3,7 +3,6 @@
 ;; This project is licenced under BSD 3-Clause License which follows.
 
 ;; Copyright (c) 2021, 1. d4
-;; All rights reserved.
 
 ;; Redistribution and use in source and binary forms, with or without
 ;; modification, are permitted provided that the following conditions are met:
@@ -30,7 +29,7 @@
 ;; OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 ;; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-;;;; ==[ 0. Introduction ]== 
+;;;; 0. Introduction
 
 ;;; This project arise from the need of a clear view of what is going on in
 ;;; a certain project. So the main question we want to answer are:
@@ -48,20 +47,35 @@
 
 ;;;; 0.1. Index
 
+;;; I. LICENCE
+;;; 0. Introduction
+;;;   0.1 Index
+;;;   0.2 Prelude
+;;;   0.3 Known issues
 ;;; 1. Requirements analysis
 ;;; 2. Design of the project
 ;;; 3. Implementation
 ;;;   3.1. Development and debugging notes
 ;;;   3.2. Data explaination
 ;;;   3.3. Import explaination
-;;;   3.4. External webhook explaination
+;;;   3.4. Page rendering
 ;;;   3.5. Server explaination
 ;;;   3.6. Command line explaination
 
-;;;; --< 0.2. Prelue >--
+;;;; 0.2. Prelue
 (define-syntax λ
   (syntax-rules ()
     ((_ param body ...) (lambda param body ...))))
+
+;;;; 0.3 Known issues
+
+;;; - The query that recursively add the branch name to the
+;;;   commits is not correctly working.
+;;; - The /user page is yet to be finished, the design is
+;;;   not clear and need more UX design to choose the
+;;;   functionality needed.
+;;; - The database is not updated from a coroutine, so for
+;;;   now one need to write a cron to update the repositories.
 
 ;;;; 1. Requirements analysis
 
@@ -82,7 +96,7 @@
 ;;; The service will have a homepage and other two pages that display the
 ;;; status of the team and the project.
 
-;;;; ==[ 2. Design ]==
+;;;; 2. Design
 
 ;;; We will use SQLite3 to store everything from configuration to repository
 ;;; data. This allow us to perform complex query without effort. There will
@@ -115,7 +129,7 @@
 
 ;;;; 3.1.1. Running and compiling
 
-;;; chicken-csi -s go.scm <add-here-options>
+;;; chicken-csi -s go.scm <add-options-here>
 ;;; chicken-csc -static go.scm
 
 ;;;; 3.1.2. Database usage
@@ -133,7 +147,9 @@
 ;;; after. Those can be set later from the options.
 
 ;; Version of the software
-(define VERSION "git-overview 0.0 by 1dotd4")
+(define VERSION "git-overview 0.1 by 1dotd4")
+;; Project name, should be able to edit later
+(define *project-name* "git-overview")
 ;; Database path
 (define *data-file* "./data.sqlite3")
 ;; Selected server port
@@ -160,62 +176,77 @@
 
 (define (check-database)
   ;; We check if the database exists and if not we create it.
-  (if (not (file-exists? *data-file*)) ; Here check if the database does not exists
+  (if (not (file-exists? *data-file*))
     (call-with-database *data-file*
       (λ (db)
         (begin
           ;; The logic implementation of the database is:
           ;; People: **author**, email
-          (exec (sql db "create table people(
-                           email varchar(50) primary key,
-                           name varchar(50));"))
+          (exec
+            (sql
+              db
+              "create table people(
+                email varchar(50) primary key,
+                name varchar(50));"))
           ;; Repositories: **name**, path
-          (exec (sql db "create table repositories(
-                           name varchar(50) primary key,
-                           path varchar(50));"))
+          (exec
+            (sql
+              db
+              "create table repositories(
+                name varchar(50) primary key,
+                path varchar(50));"))
           ;; Branches: **branch**, _repository_
-          (exec (sql db "create table branches(
-                           branch varchar(50),
-                           head varchar(130),
-                           repository varchar(50),
-                           primary key (branch, repository),
-                           foreign key (repository)
-                             references repositories (name)
-                               on delete cascade
-                               on update cascade);"))
+          (exec
+            (sql
+              db
+              "create table branches(
+                branch varchar(50),
+                head varchar(130),
+                repository varchar(50),
+                primary key (branch, repository),
+                foreign key (repository)
+                  references repositories (name)
+                    on delete cascade
+                    on update cascade);"))
           ;; Commits: **hash**, _repository_, _author_, comment, timestamp
-          (exec (sql db "create table commits(
-                           hash varchar(130) primary key,
-                           repository varchar(50),
-                           author varchar(50),
-                           comment varchar(100),
-                           timestamp integer,
-                           foreign key (repository)
-                             references repositories (name)
-                               on delete cascade
-                               on update cascade,
-                           foreign key (author)
-                             references people (email)
-                               on delete no action
-                               on update cascade);"))
+          (exec
+            (sql
+              db
+              "create table commits(
+                hash varchar(130) primary key,
+                repository varchar(50),
+                author varchar(50),
+                comment varchar(100),
+                timestamp integer,
+                foreign key (repository)
+                  references repositories (name)
+                    on delete cascade
+                    on update cascade,
+                foreign key (author)
+                  references people (email)
+                    on delete no action
+                    on update cascade);"))
           ;; CommitParents: **hash**, **parent**
-          (exec (sql db "create table commitParents(
-                           hash varchar(130),
-                           parent varchar(130),
-                           repository varchar(50),
-                           primary key (hash, repository, parent),
-                           foreign key (hash)
-                             references commits (hash)
-                               on update cascade
-                               on delete cascade,
-                           foreign key (parent)
-                             references commits (hash)
-                               on update cascade
-                               on delete cascade);"))
-          ;; Others that will be added (maybe?)
-          ;; BranchLabels: group, name
-          ;; GroupedBranches: branch, group
-          ;; Those should help with grouping the table view
+          (exec
+            (sql
+              db
+              "create table commitParents(
+                hash varchar(130),
+                parent varchar(130),
+                repository varchar(50),
+                primary key (hash, repository, parent),
+                foreign key (hash)
+                  references commits (hash)
+                    on update cascade
+                    on delete cascade,
+                foreign key (parent)
+                  references commits (hash)
+                    on update cascade
+                    on delete cascade);"))
+          ;; In case of necessity, add here more tables like
+          ;; the BranchLabels(group, name, regex),
+          ;; GroupedBranches(branch, group).
+          ;; Those may help with grouping the /user view
           ;; Note: **primary keys**, _external keys_.
           (print "Database created."))))))
 
@@ -228,19 +259,28 @@
   ;; Funciton that takes branches of a repository
   (with-input-from-pipe
     (format "git --no-pager --git-dir=~A branch -r -v --no-abbrev" path)
-    (λ () (map
-            (λ (line)
-              (let ((s (string-split line " ")))
-                (list
-                  (car s)
-                  (cadr s))))
-            (read-lines)))))
+    (λ ()
+      (map
+        (λ (line)
+          (let
+            ((s (string-split line " ")))
+            (list
+              (car s)
+              (cadr s))))
+        (read-lines)))))
 
 (define (get-git-log-dump path)
   ;; Funciton that takes logs of a repository
-  (with-input-from-pipe (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'" path)
-    (λ () (map (λ (a) (string-split a "\t" #t))
-               (read-lines)))))
+  (with-input-from-pipe
+    (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'"
+            path)
+    (λ ()
+      (map
+        (λ (a)
+          (string-split a "\t" #t))
+        (read-lines)))))
+
+;;;; 3.3 Import explaination
 
 (define (import-repository path)
   ;; Function to import a repository from a path.
@@ -251,9 +291,10 @@
         (condition-case ;; exceptions handler
             (if (directory-exists? (format "~A.git" path))
               (begin ;; insert repository path
-                (exec (sql db "insert into repositories values (?,?);")
-                      basename
-                      (format "~A.git" path))
+                (exec
+                  (sql db "insert into repositories values (?,?);")
+                  basename
+                  (format "~A.git" path))
                 (print "Successfully imported."))
               (print "Could not find .git directory"))
           [(exn sqlite) (print "This repository already exists")]
@@ -265,14 +306,14 @@
   (λ (line)
     `(
         ;; save list of email and author name
-        ,(list  (list-ref line 4)  ;; author email
-                (list-ref line 3)) ;; author name
+        ,(list  (list-ref line 4)  ; author email
+                (list-ref line 3)) ; author name
         ;; the commit to add Commits
-        ( ,(car line)         ;; hash
-          ,repo-name          ;; repository name
-          ,(list-ref line 4)  ;; author email
-          ,(list-ref line 5)  ;; comment
-          ,(list-ref line 2)) ;; timestamp
+        ( ,(car line)         ; hash
+          ,repo-name          ; repository name
+          ,(list-ref line 4)  ; author email
+          ,(list-ref line 5)  ; comment
+          ,(list-ref line 2)) ; timestamp
         ;; the parents to add to CommitParents
         ,(map
           (λ (parent)
@@ -325,110 +366,142 @@
             (begin
               ;; reimport branches
               (condition-case
-                (exec (sql db "delete from branches where repository = ?;")
-                      (car data-to-insert))
+                (exec
+                  (sql db "delete from branches where repository = ?;")
+                  (car data-to-insert))
                 [(exn sqlite) '()])
-              (map (λ (d)
-                    (condition-case
-                      (exec (sql db "insert into branches values (?, ?, ?);")
-                            (car d)
-                            (cadr d)
-                            (car data-to-insert))
-                      [(exn sqlite) '()]))
+              (map
+                (λ (d)
+                  (condition-case
+                    (exec 
+                      (sql db "insert into branches values (?, ?, ?);")
+                      (car d)
+                      (cadr d)
+                      (car data-to-insert))
+                    [(exn sqlite) '()]))
                 (list-ref data-to-insert 1))
               ;; try to add people
-              (map (λ (d)
-                    (condition-case
-                      (exec (sql db "insert into people values (?, ?);")
-                            (car d)
-                            (cadr d))
-                      [(exn sqlite) '()]))
+              (map
+                (λ (d)
+                  (condition-case
+                    (exec
+                      (sql db "insert into people values (?, ?);")
+                      (car d)
+                      (cadr d))
+                    [(exn sqlite) '()]))
                 (list-ref data-to-insert 2))
               ;; try to add commits
-              (map (λ (d)
-                    (condition-case
-                      (exec (sql db "insert into commits values (?, ?, ?, ?, ?);")
-                            (car d)
-                            (list-ref d 1)
-                            (list-ref d 2)
-                            (list-ref d 3)
-                            (list-ref d 4))
-                      [(exn sqlite) '()]))
+              (map
+                (λ (d)
+                  (condition-case
+                    (exec
+                      (sql db "insert into commits values (?, ?, ?, ?, ?);")
+                      (car d)
+                      (list-ref d 1)
+                      (list-ref d 2)
+                      (list-ref d 3)
+                      (list-ref d 4))
+                    [(exn sqlite) '()]))
                 (list-ref data-to-insert 3))
               ;; try to add commit parents
-              (map (λ (d)
-                    (condition-case
-                      (exec (sql db "insert into commitparents values (?, ?, ?);")
-                            (car d)
-                            (cadr d)
-                            (car data-to-insert))
-                      [(exn sqlite) '()]))
+              (map
+                (λ (d)
+                  (condition-case
+                    (exec 
+                      (sql db "insert into commitparents values (?, ?, ?);")
+                      (car d)
+                      (cadr d)
+                      (car data-to-insert))
+                    [(exn sqlite) '()]))
                 (list-ref data-to-insert 4))
-              (print "Imported "
-                     (length (cadddr data-to-insert))
-                     " commits from "
-                     (car data-to-insert))))
+              (print
+                "Imported "
+                (length (cadddr data-to-insert))
+                " commits from "
+                (car data-to-insert))))
           data-for-each-repository)))))
 
 (define (retrieve-last-people-activity)
   ;; Function that query for last people activity
   (call-with-database *data-file*
     (λ (db)
-      (query fetch-all (sql db "
-      with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
-      select b.head, cp.parent, b.head, b.branch, b.repository
-      from branches as b
-        join commitParents as cp
-          on cp.hash = b.head and b.repository = cp.repository
-      UNION
-      select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
-      from commitParents as cs
-        join commit_tree as ct
-          on cs.repository = ct.repository and ct.parent = cs.hash and ct.parent <> cs.parent and ct.hash <> cs.hash
-      ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
-      from (  select author, max(timestamp) as lastTimestamp
-              from commits
-              group by author ) as r
-        inner join commits as c
-          on r.author = c.author and r.lastTimestamp = c.timestamp
-        join people as p
-          on p.email = c.author
-        join commit_tree as t
-          on t.hash = c.hash and t.repository = c.repository
-      group by c.author
-      order by c.timestamp desc;")))))
+      (query
+        fetch-all
+        (sql
+          db
+          "with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
+            select b.head, cp.parent, b.head, b.branch, b.repository
+            from branches as b
+              join commitParents as cp
+                on cp.hash = b.head
+                  and b.repository = cp.repository
+            UNION
+            select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
+            from commitParents as cs
+              join commit_tree as ct
+                on cs.repository = ct.repository
+                  and ct.parent = cs.hash
+                  and ct.parent <> cs.parent
+                  and ct.hash <> cs.hash
+          ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
+          from (  select author, max(timestamp) as lastTimestamp
+                  from commits
+                  group by author ) as r
+            inner join commits as c
+              on r.author = c.author
+                and r.lastTimestamp = c.timestamp
+            join people as p
+              on p.email = c.author
+            join commit_tree as t
+              on t.hash = c.hash
+                and t.repository = c.repository
+          group by c.author
+          order by c.timestamp desc;")))))
 
 (define (retrieve-last-repository-activity)
   ;; Function that query for last repository activity
-  (let* ((retrived-data (call-with-database *data-file*
-                          (λ (db)
-                            (query fetch-all (sql db "
-        with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
-        select b.head, cp.parent, b.head, b.branch, b.repository
-        from branches as b
-          join commitParents as cp
-            on cp.hash = b.head and b.repository = cp.repository
-        UNION
-        select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
-        from commitParents as cs
-          join commit_tree as ct
-            on cs.repository = ct.repository and ct.parent = cs.hash and ct.parent <> cs.parent and ct.hash <> cs.hash
-        ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
-        from (  select author, repository, max(timestamp) as lastTimestamp
-                from commits
-                group by author, repository ) as r
-          inner join commits as c
-            on r.author = c.author and r.lastTimestamp = c.timestamp and r.repository = c.repository
-          join people as p
-            on p.email = c.author
-          join commit_tree as t
-            on t.hash = c.hash and t.repository = c.repository
-        order by c.timestamp asc;")))))
-           (grouped-by-repository ((group-by (λ (d) (list-ref d 1))) retrived-data))
-           (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository)))
-        grouped-by-repository-and-branches))
+  (let*
+    ((retrived-data
+      (call-with-database
+        *data-file*
+        (λ (db)
+          (query
+            fetch-all
+            (sql
+              db
+              "with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
+                select b.head, cp.parent, b.head, b.branch, b.repository
+                from branches as b
+                  join commitParents as cp
+                    on cp.hash = b.head
+                      and b.repository = cp.repository
+                UNION
+                select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
+                from commitParents as cs
+                  join commit_tree as ct
+                    on cs.repository = ct.repository
+                      and ct.parent = cs.hash
+                      and ct.parent <> cs.parent
+                      and ct.hash <> cs.hash
+              ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
+              from (  select author, repository, max(timestamp) as lastTimestamp
+                      from commits
+                      group by author, repository ) as r
+                inner join commits as c
+                  on r.author = c.author
+                    and r.lastTimestamp = c.timestamp
+                    and r.repository = c.repository
+                join people as p
+                  on p.email = c.author
+                join commit_tree as t
+                  on t.hash = c.hash
+                    and t.repository = c.repository
+              order by c.timestamp asc;")))))
+      (grouped-by-repository ((group-by (λ (d) (list-ref d 1))) retrived-data))
+      (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository)))
+    grouped-by-repository-and-branches))
 
-;;;; 3.x Page rendering
+;;;; 3.4 Page rendering
 (import (chicken time))
 
 (define (format-diff current atime)
@@ -437,8 +510,10 @@
          (seconds (modulo abs-seconds 60))
          (minutes (quotient abs-seconds 60))
          (hours (quotient minutes 60))
-         (days (quotient hours 24)))
+         (days (quotient hours 24))
+         (months (quotient days 30)))
     (cond
+      ((> months 0) (format "~A month" months))
       ((> days 0) (format "~A day" days))
       ((> hours 0) (format "~A hour" hours))
       ((> minutes 0) (format "~A minute" minutes))
@@ -464,7 +539,7 @@
       (h5 (@ (class "card-title")) ,(car data)))
     (div (@ (class "card-footer"))
       ,(format "Last update ~A(s) ago."
-              (format-diff current-time (cadddr data))))))
+               (format-diff current-time (cadddr data))))))
 
 (define (activate-nav-button current-page expected)
   (format "nav-link text-~A"
@@ -556,10 +631,15 @@
     `(html
         (head
           (meta (@ (charset "utf-8")))
-          (title ,(cond ((equal? current-page 'people) "People - Project X")
-                        ((equal? current-page 'repo) "Repositories - Project X")
-                        ((equal? current-page 'user) "User - Project X")
-                        (else "404 - Project X")))
+          (title
+            ,(string-append 
+                (cond 
+                  ((equal? current-page 'people) "People")
+                  ((equal? current-page 'repo) "Repositories")
+                  ((equal? current-page 'user) "User")
+                  (else "Page not found"))
+                " - "
+                *project-name*))
           (meta (@ (name "viewport") (content "width=device-width, initial-scale=1, shrink-to-fit=no")))
           (meta (@ (name "author") (content "1dotd4")))
           (link (@
@@ -570,8 +650,10 @@
         (body
           (div (@ (class "navbar navbar-expand-lg navbar-dark bg-dark static-top mb-3"))
             (div (@ (class "container"))
-              (a (@ (class "navbar-brand") (href "/"))
-                "Git overview - Project X")
+              (a (@ (class "navbar-brand") (href "./"))
+                ,(format
+                    "Git overview - ~A"
+                    *project-name*))
               (ul (@ (class "nav ml-auto"))
                 (li (@ (class "nav-item"))
                   (a (@ (class ,(activate-nav-button current-page 'people))
@@ -583,30 +665,31 @@
                     "Repositories"))
                 (li (@ (class "nav-item"))
                   (a (@ (class ,(activate-nav-button current-page 'user))
-                        (href "user"))
+                        (href "#")) ; (href "user")) ; disabled
                     "User")))))
           ,(cond ((equal? current-page 'people)
                     (build-people (retrieve-last-people-activity) current-time))
                   ((equal? current-page 'repo)
                     (build-repo (retrieve-last-repository-activity) current-time))
-                  ((equal? current-page 'user)
-                    (build-user '("@1dotd4"
-                        ("c0ff33" "my-fancy-frontend" "stable" "release 1.2" "2021-05-13 1037")
-                        ("c0ff33" "my-fancy-frontend" "add-button" "finalize button" "2021-05-10 1137")
-                        ("c0ff33" "my-fancy-frontend" "add-button" "change color" "2021-05-05 1237")
-                        ("c0ff33" "my-fancy-frontend" "add-button" "add button" "2021-05-03 0937")
-                        ("c0ff33" "my-fancy-frontend" "stable" "release 1.1" "2021-04-25 1137")
-                        ("c0ff33" "my-fancy-frontend" "stable" "release 1.0" "2021-04-01 1537")
-                      )))
+                  ;((equal? current-page 'user)
+                  ;  (build-user '("@1dotd4"
+                  ;      ("c0ff33" "my-fancy-frontend" "stable" "release 1.2" "2021-05-13 1037")
+                  ;      ("c0ff33" "my-fancy-frontend" "add-button" "finalize button" "2021-05-10 1137")
+                  ;      ("c0ff33" "my-fancy-frontend" "add-button" "change color" "2021-05-05 1237")
+                  ;      ("c0ff33" "my-fancy-frontend" "add-button" "add button" "2021-05-03 0937")
+                  ;      ("c0ff33" "my-fancy-frontend" "stable" "release 1.1" "2021-04-25 1137")
+                  ;      ("c0ff33" "my-fancy-frontend" "stable" "release 1.0" "2021-04-01 1537")
+                  ;    )))
                 ;; '("hash" "repository" "branch" "comment" "date"))))
-                  (else `(div (@ (class "container"))
-                          (p (@ (class "text-center text-muted mt-3 small"))
-                              "Page not found."))))
+                  (else
+                    `(div (@ (class "container"))
+                      (p (@ (class "text-center text-muted mt-3 small"))
+                          "Page not found."))))
           (div (@ (class "container text-secondary text-center my-4 small"))
             (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
               ,VERSION)))))) ;; - end body -
 
-;;;; 3.x Webserver
+;;;; 3.5 Webserver
 (import spiffy
         intarweb
         uri-common
@@ -614,11 +697,12 @@
 
 (define (send-sxml-response sxml)
   ;; Function to serialize and send SXML as HTML
-  (with-headers `((connection close))
-                (λ ()
-                  (write-logged-response)))
-  (serialize-sxml sxml
-                  output: (response-port (current-response))))
+  (with-headers
+    `((connection close))
+     (λ () (write-logged-response)))
+  (serialize-sxml
+    sxml
+    output: (response-port (current-response))))
 
 (define (handle-request continue)
   ;; Function that handles an HTTP requsest in spiffy
@@ -629,10 +713,8 @@
             (send-sxml-response (build-page 'repo)))
           ((equal? (uri-path uri) '(/ "user"))
             (send-sxml-response (build-page 'user)))
-          ((equal? (uri-path uri) '(/ "greet"))
-            (send-response status: 'ok body: "<h1>Hello world</h1>"))
           (else
-            (send-response status: 'not-found body: )))))
+            (send-sxml-response (build-page 'not-found))))))
 
 ;; Map a any vhost to the main handler
 (vhost-map `((".*" . ,handle-request)))
@@ -649,6 +731,8 @@
   ;; List passed to args:parse to choose which option will be selected and validated.
   (list (args:make-option (i import) (required: "REPOPATH") "Import from repository at path REPOPATH"
           (set! operation 'import))
+        (args:make-option (n name) (required: "PROJECTNAME") "Set project name"
+          (set! *project-name* arg))
         (args:make-option (s serve) #:none "Serve the database"
           (set! operation 'serve))
         (args:make-option (v V version) #:none "Display version"
@@ -659,7 +743,8 @@
 (define (usage)
   ;; Function that will show the usage in case 'help is selected or in the
   ;; default case
-  (with-output-to-port (current-error-port)
+  (with-output-to-port
+    (current-error-port)
     (λ ()
       (print "Usage: " (car (argv)) " [options...] [files...]")
       (newline)
@@ -677,7 +762,7 @@
           (check-database)
           (import-repository (alist-ref 'import options)))
         ((equal? operation 'serve)
-          (print "Will serve the database")
+          (print "Will serve the database for project " *project-name*)
           (check-database)
           ;; Fetch data from database
           ;; TODO: this should be a coroutine
@@ -685,21 +770,10 @@
           ;; Set server port in spiffy
           (server-port *selected-server-port*)
           (print "The server is starting")
-          ;; Start spiffy web server as seen in §3.x
+          ;; Start spiffy web server as seen in §3.5
           (start-server))
         (else
           ;; This is to update the database will not be here
           (check-database)
           (fetch-repository-data)))) 
-
-;;;; Notes for next revision
-
-;;; - use the same pages
-;;; - add authentication
-;;; - add oauth
-;;; - add api calls
-
-;;;; Notes on data
-
-;;; TODO: explain all the details of issues found here.
 
