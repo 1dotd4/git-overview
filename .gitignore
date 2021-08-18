@@ -5,3 +5,8 @@
 *.scm~
 *.scm#*
 .#*.scm
+*.link
+*.sqlite3
+go
+data
+test/
