@@ -163,6 +163,7 @@
         sort-combinators
         (chicken io)
         (chicken file)
+        (chicken sort)
         (chicken format)
         (chicken string)
         (chicken process))
@@ -319,6 +320,9 @@
           (λ (parent)
               (list (car line) parent))
           (string-split (list-ref line 1))))))
+        ;; ,(if (not (null? (string-split (list-ref line 1))))
+        ;;     (list (list (car line) (car (string-split (list-ref line 1)))))
+        ;;     '()))))
 
 (define (keep-unique-email alist)
   ;; Add email only if it does not exists in alist
@@ -497,8 +501,10 @@
                   on t.hash = c.hash
                     and t.repository = c.repository
               order by c.timestamp asc;")))))
-      (grouped-by-repository ((group-by (λ (d) (list-ref d 1))) retrived-data))
-      (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository)))
+      (sorted-by-repository (sort retrived-data (λ (a b) (string<? (cadr a) (cadr b)))))
+      (grouped-by-repository ((group-by (λ (d) (list-ref d 1))) sorted-by-repository))
+      (grouped-by-repository-sorted-by-branch (map (λ (l) (sort l (λ (a b) (string<? (caddr a) (caddr b))))) grouped-by-repository))
+      (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository-sorted-by-branch)))
     grouped-by-repository-and-branches))
 
 ;;;; 3.4 Page rendering
@@ -567,20 +573,20 @@
               (thead
                 (tr
                   ,(map
-                    (λ (branches)
+                    (λ (branch)
                       `(td ,(list-ref 
-                              (car branches)
+                              (car branch)
                               2)))
                     repo)))
               (tbody
                 (tr
                   ,(map
-                    (λ (person)
+                    (λ (branch)
                       `(td
                         ,(map
-                          (λ (d)
-                            (data->sxml-compact-card d current-time))
-                          person)))
+                          (λ (person)
+                            (data->sxml-compact-card person current-time))
+                          branch)))
                     repo)))))))
       data)))
 
