@@ -55,27 +55,37 @@
 ;;; 1. Requirements analysis
 ;;; 2. Design of the project
 ;;; 3. Implementation
-;;;   3.1. Development and debugging notes
-;;;   3.2. Data explaination
-;;;   3.3. Import explaination
-;;;   3.4. Page rendering
-;;;   3.5. Server explaination
-;;;   3.6. Command line explaination
+;;;   3.1 Development and debugging notes
+;;; TODO
 
 ;;;; 0.2. Prelue
 (define-syntax λ
   (syntax-rules ()
     ((_ param body ...) (lambda param body ...))))
 
+(import srfi-1
+        sort-combinators
+        (chicken io)
+        (chicken file)
+        (chicken sort)
+        (chicken format)
+        (chicken string)
+        (chicken process))
+
+(define (binary-or a b) (or a b))
+
+(define (cons-unique equals?)
+  (lambda (new-element alist)
+    (cond ((null? alist) (list new-element))
+          ((null? new-element) alist)
+          (else
+            (if (fold binary-or #f (map (lambda (el) (equals? new-element el)) alist))
+              alist
+              (cons new-element alist))))))
+
 ;;;; 0.3 Known issues
 
-;;; - The query that recursively add the branch name to the
-;;;   commits is not correctly working.
-;;; - The /user page is yet to be finished, the design is
-;;;   not clear and need more UX design to choose the
-;;;   functionality needed.
-;;; - The database is not updated from a coroutine, so for
-;;;   now one need to write a cron to update the repositories.
+;;; TODO:
 
 ;;;; 1. Requirements analysis
 
@@ -98,13 +108,13 @@
 
 ;;;; 2. Design
 
-;;; We will use SQLite3 to store everything from configuration to repository
-;;; data. This allow us to perform complex query without effort. There will
-;;; be a selector to decide which action should the program perform. The
-;;; main two are import and serve.
+;;; We will not use SQLite3 because SQL can't traverse graphs efficiently.
+;;; We will use S-expressions to store our data which is easier to
+;;; manipulate.
 ;;;
 ;;; The import action will only add the minimum information of the
-;;; repository to the database.
+;;; repository to the database. This is important for future type of
+;;; fetching from a repository, like GitHub.
 ;;;
 ;;; The serve action is composed of different tasks:
 ;;; - serve the web pages which are rendered from the query to the database;
@@ -132,13 +142,8 @@
 ;;; chicken-csi -s go.scm <add-options-here>
 ;;; chicken-csc -static go.scm
 
-;;;; 3.1.2. Database usage
-
-;;; We will use sql-de-lite as library for sqlite3 as the intended sqlite3
-;;; is not as egonomic as wanted and need some extra configuration to make
-;;; it work on all platforms. In addition sql-de-lite some higher order
-;;; functions we can use already. More information can be found here:
-;;; https://wiki.call-cc.org/eggref/5/sql-de-lite
+;;; 3.1.2 Debugging
+;;; User (expand <symbol>) to visualize stuff in your <pre> debuge page.
 
 ;;;; 3.1.3 Name convention
 
@@ -147,365 +152,259 @@
 ;;; after. Those can be set later from the options.
 
 ;; Version of the software
-(define VERSION "git-overview 0.1 by 1dotd4")
+(define VERSION "git-overview 0.2 by 1dotd4")
 ;; Project name, should be able to edit later
 (define *project-name* "git-overview")
 ;; Database path
-(define *data-file* "./data.sqlite3")
+(define *data-file* "./data.sexp")
 ;; Selected server port
 (define *selected-server-port* 6660)
 
 ;;;; 3.2 Data explaination
 
-;; We import here the necessary library we need.
-(import sql-de-lite
-        srfi-1
-        sort-combinators
-        (chicken io)
-        (chicken file)
-        (chicken sort)
-        (chicken format)
-        (chicken string)
-        (chicken process))
-
-;;; We store every commit in a table and for each commit we have a table for
-;;; parents. In this way we can keep track of the tree and branches of each
-;;; repository.
-
-;;; BranchLabels: **group**, name
-;;; GroupedBranches: _**branch**_, _**group**_
-
-(define (check-database)
-  ;; We check if the database exists and if not we create it.
-  (if (not (file-exists? *data-file*))
-    (call-with-database *data-file*
-      (λ (db)
-        (begin
-          ;; The logic implementation of the database is:
-          ;; People: **author**, email
-          (exec
-            (sql
-              db
-              "create table people(
-                email varchar(50) primary key,
-                name varchar(50));"))
-          ;; Repositories: **name**, path
-          (exec
-            (sql
-              db
-              "create table repositories(
-                name varchar(50) primary key,
-                path varchar(50));"))
-          ;; Branches: **branch**, _repository_
-          (exec
-            (sql
-              db
-              "create table branches(
-                branch varchar(50),
-                head varchar(130),
-                repository varchar(50),
-                primary key (branch, repository),
-                foreign key (repository)
-                  references repositories (name)
-                    on delete cascade
-                    on update cascade);"))
-          ;; Commits: **hash**, _repository_, _author_, comment, timestamp
-          (exec
-            (sql
-              db
-              "create table commits(
-                hash varchar(130) primary key,
-                repository varchar(50),
-                author varchar(50),
-                comment varchar(100),
-                timestamp integer,
-                foreign key (repository)
-                  references repositories (name)
-                    on delete cascade
-                    on update cascade,
-                foreign key (author)
-                  references people (email)
-                    on delete no action
-                    on update cascade);"))
-          ;; CommitParents: **hash**, **parent**
-          (exec
-            (sql
-              db
-              "create table commitParents(
-                hash varchar(130),
-                parent varchar(130),
-                repository varchar(50),
-                primary key (hash, repository, parent),
-                foreign key (hash)
-                  references commits (hash)
-                    on update cascade
-                    on delete cascade,
-                foreign key (parent)
-                  references commits (hash)
-                    on update cascade
-                    on delete cascade);"))
-          ;; In case of necessity, add here more tables like
-          ;; the BranchLabels(group, name, regex),
-          ;; GroupedBranches(branch, group).
-          ;; Those may help with grouping the /user view
-          ;; Note: **primary keys**, _external keys_.
-          (print "Database created."))))))
-
-(define (get-basename path)
+;;;; Git helpers
+(define (sh-basename path)
   ;; Function that takes the basename of a path
   (with-input-from-pipe (format "basename ~A" path)
-    (λ () (read-line))))
+                        (λ () (read-line))))
 
-(define (get-git-branch path)
+(define (make-branch name repo hash)
+  (list name repo hash))
+(define (branch->name b) (car b))
+(define (branch->repo b) (cadr b))
+(define (branch->commit b) (caddr b))
+(define (branches:find-name-from-hash branches hash)
+  (if (null? branches)
+    #f
+    (if (string=? (branch->commit (car branches)) hash)
+      (branch->name (car branches))
+      (branches:find-name-from-hash (cdr branches) hash))))
+
+(define (git-branch path name)
   ;; Funciton that takes branches of a repository
   (with-input-from-pipe
     (format "git --no-pager --git-dir=~A branch -r -v --no-abbrev" path)
     (λ ()
-      (map
-        (λ (line)
-          (let
-            ((s (string-split line " ")))
-            (list
-              (car s)
-              (cadr s))))
-        (read-lines)))))
+       (map
+         (λ (line)
+            (let
+              ((s (string-split line " ")))
+              (make-branch
+                (car s)
+                name
+                (cadr s))))
+         (read-lines)))))
 
-(define (get-git-log-dump path)
+(define (git-log-dump path)
   ;; Funciton that takes logs of a repository
   (with-input-from-pipe
     (format "git --git-dir=~A --no-pager log --branches --tags --remotes --full-history --date-order --format='format:%H%x09%P%x09%at%x09%an%x09%ae%x09%s%x09%D'"
             path)
     (λ ()
-      (map
-        (λ (a)
-          (string-split a "\t" #t))
-        (read-lines)))))
+       (map
+         (λ (a)
+            (string-split a "\t" #t))
+         (read-lines)))))
+
+
+(define (make-commit hash parents repo-name author comment timestamp refs)
+  (let ((unixtime (if (string? timestamp)
+                    (string->number timestamp)
+                    timestamp)))
+    (list hash parents repo-name author comment unixtime refs)))
+
+(define (commit->hash c) (car c))
+(define (commit->parents c) (cadr c))
+(define (commit->repository c) (caddr c))
+(define (commit->author c) (list-ref c 3))
+(define (commit->comment c) (list-ref c 4))
+(define (commit->timestamp c) (list-ref c 5))
+(define (commit->refs c) (list-ref c 6))
+
+(define (commits:less? a b)
+  (> (commit->timestamp a)
+     (commit->timestamp b)))
+
+(define (commits:get-last commits)
+  (car (sort commits commits:less?)))
+
+(define (commits:find-child commit commits)
+  (if (null? commits)
+    #f
+    (if (fold binary-or #f (map (lambda (x) (string=? x (commit->hash commit))) (commit->parents (car commits))))
+      (car commits)
+      (commits:find-child commit (cdr commits)))))
+
+
+(define (commits:find-ref commit commits)
+  (let ((child (commits:find-child commit commits)))
+    (if child
+      (if (null? (commit->refs child))
+        (commits:find-ref child commits)
+        child)
+      (if (null? (commit->refs commit))
+        #f
+        commit))))
+
+(define (make-user email name)
+  (cons email name))
+
+(define (user->email a) (car a))
+(define (user->name a) (cdr a))
+
+(define (user:same? a b)
+  (string=? (user->email a)
+            (user->email b)))
+(define (users:get-name-from-email authors email)
+  (if (null? authors)
+    #f
+    (if (string=? email (user->email (car authors)))
+      (user->name (car authors))
+      (users:get-name-from-email (cdr authors) email))))
+
+(define (commits:filter-by-user user commits)
+  (filter
+    (λ (commit) (string=? (user->email user)
+                     (commit->author commit)))
+    commits))
+
+(define (make-database repositories people branches commits)
+  (list repositories people branches commits))
+
+(define (database->repositories db) (car db))
+(define (database->people db) (cadr db))
+(define (database->branches db) (caddr db))
+(define (database->commits db) (cadddr db))
+
+(define (database:merge a b)
+  (make-database
+    (append (database->repositories a) (database->repositories b))
+    (fold (cons-unique user:same?) (database->people a) (database->people b))
+    (append (database->branches a) (database->branches b))
+    (append (database->commits a) (database->commits b))))
+
+(define (make-repository name path)
+  (cons name path))
+
+(define (repository->name r) (car r))
+(define (repository->path r) (cdr r))
+
+(define (check-database)
+  ;; We check if the database exists and if not we create it.
+  (if (not (file-exists? *data-file*))
+    (call-with-output-file
+      *data-file*
+      (λ (db)
+         (begin
+           (write '(() ; repositories
+                    () ; users
+                    () ; branches
+                    ()) ; commits
+                  db)
+           (print "Database created."))))))
 
 ;;;; 3.3 Import explaination
 
 (define (import-repository path)
   ;; Function to import a repository from a path.
   ;; Will add only the path as it's the main loop to import the data.
-  (call-with-database *data-file* ;; open database
-    (λ (db)
-      (let* ((basename (get-basename path)))
-        (condition-case ;; exceptions handler
-            (if (directory-exists? (format "~A.git" path))
-              (begin ;; insert repository path
-                (exec
-                  (sql db "insert into repositories values (?,?);")
-                  basename
-                  (format "~A.git" path))
-                (print "Successfully imported."))
-              (print "Could not find .git directory"))
-          [(exn sqlite) (print "This repository already exists")]
-          [(exn) (print "Somthing else has occurred")]
-          [var () (print "Is this the finally?")])))))
+  (let ((db (call-with-input-file *data-file* (λ (o) (read o)))))
+    (call-with-output-file
+      *data-file*
+      (λ (o)
+         (if (not (directory-exists? (format "~A.git" path)))
+           (print "Could not find .git directory")
+           (let ((basename (sh-basename path))
+                 (repo-path (format "~A.git" path))
+                 (repositories (database->repositories db))
+                 (people (database->people db))
+                 (branches (database->branches db))
+                 (commits (database->commits db)))
+             (if (fold binary-or #f (map
+                               (lambda (x)
+                                 (eq? (car x)
+                                      basename))
+                               repositories))
+               (print "Thir repository already exists")
+               (begin
+                 (write
+                   (make-database
+                     (cons (make-repository basename repo-path)
+                           repositories)
+                     people
+                     branches
+                     commits)
+                   o)
+                 (print "Successfully imported.")))))))))
 
-(define (commit-line->composed-data repo-name)
-  ;; map a line to a list of records
-  (λ (line)
-    `(
-        ;; save list of email and author name
-        ,(list  (list-ref line 4)  ; author email
-                (list-ref line 3)) ; author name
-        ;; the commit to add Commits
-        ( ,(car line)         ; hash
-          ,repo-name          ; repository name
-          ,(list-ref line 4)  ; author email
-          ,(list-ref line 5)  ; comment
-          ,(list-ref line 2)) ; timestamp
-        ;; the parents to add to CommitParents
-        ,(map
-          (λ (parent)
-              (list (car line) parent))
-          (string-split (list-ref line 1))))))
-        ;; ,(if (not (null? (string-split (list-ref line 1))))
-        ;;     (list (list (car line) (car (string-split (list-ref line 1)))))
-        ;;     '()))))
-
-(define (keep-unique-email alist)
-  ;; Add email only if it does not exists in alist
-  (define (keep list-to-be-traversed traversed-list)
-    (cond
-      ((null? list-to-be-traversed)
-        traversed-list)
-      ((null? traversed-list)
-        (keep (cdr list-to-be-traversed) (list (car list-to-be-traversed))))
-      ((member (caar list-to-be-traversed) (map car traversed-list))
-        (keep (cdr list-to-be-traversed) traversed-list))
-      (else
-        (keep (cdr list-to-be-traversed) (cons (car list-to-be-traversed) traversed-list)))))
-  (keep alist '()))
-
-(define (composed-data->commits-parents-unique-authors composed-data)
-  ;; transpose data
-  (if (null? composed-data)
-      '()
-      (list (keep-unique-email (map car composed-data))
-            (map cadr composed-data)
-            (join (map caddr composed-data)))))
-
-(define (populate-repository-information repo)
-  ;; Function to populate data of a repository, returns a list with
-  (let ((repo-name (car repo))
-        (repo-path (cadr repo)))
-    ;; there will be here data of branches, not for now
-    (cons 
-      repo-name 
-      (cons
-        (get-git-branch repo-path)
-        (composed-data->commits-parents-unique-authors
-          (map (commit-line->composed-data repo-name)
-            (get-git-log-dump repo-path)))))))
+(define (populate-repository-information repository)
+  (let* ((raw-commits (git-log-dump (repository->path repository)))
+         (commits (map 
+                    (λ (line)
+                       (make-commit
+                         (car line)                       ; hash
+                         (string-split (list-ref line 1)) ; parents
+                         (repository->name repository)    ; repository name
+                         (list-ref line 4)                ; author email
+                         (list-ref line 5)                ; comment
+                         (list-ref line 2)                ; timestamp
+                         (list-ref line 6)))              ; refs
+                    raw-commits))
+         (people (fold
+                  (cons-unique user:same?)
+                  '()
+                  (map
+                    (λ (line)
+                       (make-user
+                         (list-ref line 4)   ; author email
+                         (list-ref line 3))) ; author name
+                    raw-commits)))
+         (branches (git-branch (repository->path repository) (repository->name repository)))
+         (partial-database (make-database (list repository)
+                                          people
+                                          branches
+                                          commits)))
+    partial-database))
 
 (define (fetch-repository-data)
   ;; Function to populate data for each repository
-  (call-with-database *data-file*
-    (λ (db)
-      (let* ((repositories (query fetch-all (sql db "select * from repositories;")))
-             (data-for-each-repository (map populate-repository-information repositories)))
-        (map
-          (λ (data-to-insert)
-            (begin
-              ;; reimport branches
-              (condition-case
-                (exec
-                  (sql db "delete from branches where repository = ?;")
-                  (car data-to-insert))
-                [(exn sqlite) '()])
-              (map
-                (λ (d)
-                  (condition-case
-                    (exec 
-                      (sql db "insert into branches values (?, ?, ?);")
-                      (car d)
-                      (cadr d)
-                      (car data-to-insert))
-                    [(exn sqlite) '()]))
-                (list-ref data-to-insert 1))
-              ;; try to add people
-              (map
-                (λ (d)
-                  (condition-case
-                    (exec
-                      (sql db "insert into people values (?, ?);")
-                      (car d)
-                      (cadr d))
-                    [(exn sqlite) '()]))
-                (list-ref data-to-insert 2))
-              ;; try to add commits
-              (map
-                (λ (d)
-                  (condition-case
-                    (exec
-                      (sql db "insert into commits values (?, ?, ?, ?, ?);")
-                      (car d)
-                      (list-ref d 1)
-                      (list-ref d 2)
-                      (list-ref d 3)
-                      (list-ref d 4))
-                    [(exn sqlite) '()]))
-                (list-ref data-to-insert 3))
-              ;; try to add commit parents
-              (map
-                (λ (d)
-                  (condition-case
-                    (exec 
-                      (sql db "insert into commitparents values (?, ?, ?);")
-                      (car d)
-                      (cadr d)
-                      (car data-to-insert))
-                    [(exn sqlite) '()]))
-                (list-ref data-to-insert 4))
-              (print
-                "Imported "
-                (length (cadddr data-to-insert))
-                " commits from "
-                (car data-to-insert))))
-          data-for-each-repository)))))
+  (let* ((db (call-with-input-file *data-file* (λ (i) (read i))))
+        (repositories (database->repositories db))
+        (data-for-each-repository (map populate-repository-information repositories))
+        (merged-data (fold database:merge '(() () () ()) data-for-each-repository)))
+    (call-with-output-file
+      *data-file*
+      (λ (o)
+         (begin
+           (write merged-data o)
+            (print
+              "Imported "
+              (length (cadddr merged-data))
+              " commits from "
+              (length (car merged-data))
+              " repositories."))))))
 
 (define (retrieve-last-people-activity)
   ;; Function that query for last people activity
-  (call-with-database *data-file*
-    (λ (db)
-      (query
-        fetch-all
-        (sql
-          db
-          "with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
-            select b.head, cp.parent, b.head, b.branch, b.repository
-            from branches as b
-              join commitParents as cp
-                on cp.hash = b.head
-                  and b.repository = cp.repository
-            UNION
-            select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
-            from commitParents as cs
-              join commit_tree as ct
-                on cs.repository = ct.repository
-                  and ct.parent = cs.hash
-                  and ct.parent <> cs.parent
-                  and ct.hash <> cs.hash
-          ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
-          from (  select author, max(timestamp) as lastTimestamp
-                  from commits
-                  group by author ) as r
-            inner join commits as c
-              on r.author = c.author
-                and r.lastTimestamp = c.timestamp
-            join people as p
-              on p.email = c.author
-            join commit_tree as t
-              on t.hash = c.hash
-                and t.repository = c.repository
-          group by c.author
-          order by c.timestamp desc;")))))
-
-(define (retrieve-last-repository-activity)
-  ;; Function that query for last repository activity
-  (let*
-    ((retrived-data
-      (call-with-database
-        *data-file*
-        (λ (db)
-          (query
-            fetch-all
-            (sql
-              db
-              "with recursive commit_tree (hash, parent, head, branch_name, repository) AS (
-                select b.head, cp.parent, b.head, b.branch, b.repository
-                from branches as b
-                  join commitParents as cp
-                    on cp.hash = b.head
-                      and b.repository = cp.repository
-                UNION
-                select cs.hash, cs.parent, ct.head, ct.branch_name, ct.repository
-                from commitParents as cs
-                  join commit_tree as ct
-                    on cs.repository = ct.repository
-                      and ct.parent = cs.hash
-                      and ct.parent <> cs.parent
-                      and ct.hash <> cs.hash
-              ) select p.name, c.repository, t.branch_name, c.timestamp, c.hash
-              from (  select author, repository, max(timestamp) as lastTimestamp
-                      from commits
-                      group by author, repository ) as r
-                inner join commits as c
-                  on r.author = c.author
-                    and r.lastTimestamp = c.timestamp
-                    and r.repository = c.repository
-                join people as p
-                  on p.email = c.author
-                join commit_tree as t
-                  on t.hash = c.hash
-                    and t.repository = c.repository
-              order by c.timestamp asc;")))))
-      (sorted-by-repository (sort retrived-data (λ (a b) (string<? (cadr a) (cadr b)))))
-      (grouped-by-repository ((group-by (λ (d) (list-ref d 1))) sorted-by-repository))
-      (grouped-by-repository-sorted-by-branch (map (λ (l) (sort l (λ (a b) (string<? (caddr a) (caddr b))))) grouped-by-repository))
-      (grouped-by-repository-and-branches (map (group-by (λ (d) (list-ref d 2))) grouped-by-repository-sorted-by-branch)))
-    grouped-by-repository-and-branches))
+  (let* ((db (call-with-input-file *data-file* (λ (i) (read i))))
+         (commits (database->commits db))
+         (people (database->people db))
+         (last-commits (map (λ (user) (commits:get-last (commits:filter-by-user user commits)))
+                            people))
+         (commits-with-branches (map (lambda (c) (make-commit 
+                                                   (commit->hash c)
+                                                   (commit->parents c)
+                                                   (commit->repository c)
+                                                   (users:get-name-from-email
+                                                     (database->people db)
+                                                     (commit->author c))
+                                                   (commit->comment c)
+                                                   (commit->timestamp c)
+                                                   (branches:find-name-from-hash
+                                                     (database->branches db)
+                                                     (commit->hash (commits:find-ref c commits)))))
+                                     last-commits)))
+    (sort commits-with-branches commits:less?)))
 
 ;;;; 3.4 Page rendering
 (import (chicken time))
@@ -527,173 +426,85 @@
 
 (define (data->sxml-card data current-time)
   `(div (@ (class "col-lg-3 my-3 mx-auto"))
-    (div (@ (class "card"))
-      (div (@ (class "card-body"))
-        (h5 (@ (class "card-title")) ,(car data))
-        (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (caddr data))))
-      (div
-        (@ (class "card-footer"))
-        ,(format
-          "Last update ~A(s) ago."
-          (format-diff current-time (cadddr data)))))))
-        ;; Was used to get the commit's first characters (7) just like the compact version is
-        ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
-
-(define (data->sxml-compact-card data current-time)
-  `(div (@ (class "card my-3"))
-    (div (@ (class "card-body"))
-      (h5 (@ (class "card-title")) ,(car data)))
-    (div (@ (class "card-footer"))
-      ,(format "Last update ~A(s) ago."
-               (format-diff current-time (cadddr data))))))
-
-(define (activate-nav-button current-page expected)
-  (format "nav-link text-~A"
-    (if (equal? current-page expected)
-      "light active"
-      "secondary")))
+        (div (@ (class "card"))
+             (div (@ (class "card-body"))
+                  (h5 (@ (class "card-title")) ,(commit->author data))
+                  (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (commit->repository data) (commit->refs data))))
+             (div
+               (@ (class "card-footer"))
+               ,(format
+                  "Last update ~A(s) ago."
+                  (format-diff current-time (commit->timestamp data)))))))
+                ;; Was used to get the commit's first characters (7) just like the compact version is
+                ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
 
 (define (build-people data current-time)
   ;; Function that build a page for displaying last update for each committer
   `(div (@ (class "container"))
-    (p (@ (class "text-center text-muted mt-3 small"))
-      "Tests a nice team")
-    (div (@ (class "row my-3"))
-      ,(map (λ (d) (data->sxml-card d current-time)) data))))
+        (p (@ (class "text-center text-muted mt-3 small"))
+           "Tests a nice team")
+        (div (@ (class "row my-3"))
+             ,(map (λ (d) (data->sxml-card d current-time)) data))))
 
-(define (build-repo data current-time)
-  ;; Funciton that build a page for displaying for each repository each branch and people on that branch
-  `(div (@ (class "container"))
-    ,(map (λ (repo)
-        `(div
-          (h3 (@ (class "mt-3"))
-            ,(list-ref (car (car repo)) 1))
-          (div (@ (class "table-responsive"))
-            (table (@ (class "table table-striped table-hover"))
-              (thead
-                (tr
-                  ,(map
-                    (λ (branch)
-                      `(td ,(list-ref 
-                              (car branch)
-                              2)))
-                    repo)))
-              (tbody
-                (tr
-                  ,(map
-                    (λ (branch)
-                      `(td
-                        ,(map
-                          (λ (person)
-                            (data->sxml-compact-card person current-time))
-                          branch)))
-                    repo)))))))
-      data)))
-
-(define (build-user data)
-  ;; TODO: finish frontend for selecting everything
-  ;; Function that build a page for searching commits
-  `(div (@ (class "container"))
-    (form (@ (action "#") (method "POST"))
-      (div (@ (class "row my-3"))
-        (h2 (@ (class "col my-3")) ,(car data))
-        (div (@ (class "col-lg-3 my-3 mx-auto"))
-          (div (@ (class "col form-check"))
-            (input (@ (class "form-check-input") (type "checkbox") (id "my-fancy-core") (value "selected")))
-            (label (@ (class "form-check-label") (for "my-fancy-core")) "my-fancy-core"))
-          (div (@ (class "col form-check"))
-            (input (@ (class "form-check-input") (type "checkbox") (id "my-fancy-frontend") (value "selected") (checked)))
-            (label (@ (class "form-check-label") (for "my-fancy-frontend")) "my-fancy-frontend")))
-        (div (@ (class "col-lg-3 my-3 mx-auto"))
-          (div (@ (class "col form-check"))
-            (input (@ (class "form-check-input") (type "checkbox") (id "stable") (value "selected") (checked)))
-            (label (@ (class "form-check-label") (for "stable" )) "stable"))
-          (div (@ (class "col form-check"))
-            (input (@ (class "form-check-input") (type "checkbox") (id "current") (value "selected")))
-            (label (@ (class "form-check-label") (for "current" )) "current"))
-          (div (@ (class "col form-check"))
-            (input (@ (class "form-check-input") (type "checkbox") (id "add-button") (value "selected") (checked)))
-            (label (@ (class "form-check-label") (for "add-button" )) "add-button")))
-        (div (@ (class "col-lg my-3 mx-auto"))
-          (input (@ (class "btn btn-secondary") (type "submit") (value "Update filter"))))))
-    (div (@ (class "table-responsive"))
-      (table (@ (class "table table-striped table-hover"))
-        (thead
-          (tr
-            ,(map (λ (x) `(td ,x))
-              '("hash" "repository" "branch" "comment" "date"))))
-        (tbody
-          (tr
-            ,(map (λ (x)
-                    `(tr ;; Refactor this data->row
-                      ,(map (λ (y)
-                          `(td ,y))
-                        x)))
-              (cdr data))))))))
+(define (activate-nav-button current-page expected)
+  (format "nav-link text-~A"
+          (if (equal? current-page expected)
+            "light active"
+            "secondary")))
 
 (define (build-page current-page)
   ;; Function that build the appropriate page
   (let ((current-time (current-seconds)))
     `(html
-        (head
-          (meta (@ (charset "utf-8")))
-          (title
-            ,(string-append 
-                (cond 
-                  ((equal? current-page 'people) "People")
-                  ((equal? current-page 'repo) "Repositories")
-                  ((equal? current-page 'user) "User")
-                  (else "Page not found"))
-                " - "
-                *project-name*))
-          (meta (@ (name "viewport") (content "width=device-width, initial-scale=1, shrink-to-fit=no")))
-          (meta (@ (name "author") (content "1dotd4")))
-          (link (@
-                  (href "https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css")
-                  (rel "stylesheet")
-                  (integrity "sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC")
-                  (crossorigin "anonymous"))))
-        (body
-          (div (@ (class "navbar navbar-expand-lg navbar-dark bg-dark static-top mb-3"))
-            (div (@ (class "container"))
-              (a (@ (class "navbar-brand") (href "./"))
-                ,(format
-                    "Git overview - ~A"
-                    *project-name*))
-              (ul (@ (class "nav ml-auto"))
-                (li (@ (class "nav-item"))
-                  (a (@ (class ,(activate-nav-button current-page 'people))
-                        (href "./"))
-                    "People"))
-                (li (@ (class "nav-item"))
-                  (a (@ (class ,(activate-nav-button current-page 'repo))
-                        (href "repo"))
-                    "Repositories"))
-                (li (@ (class "nav-item"))
-                  (a (@ (class ,(activate-nav-button current-page 'user))
-                        (href "#")) ; (href "user")) ; disabled
-                    "User")))))
-          ,(cond ((equal? current-page 'people)
-                    (build-people (retrieve-last-people-activity) current-time))
-                  ((equal? current-page 'repo)
-                    (build-repo (retrieve-last-repository-activity) current-time))
-                  ;((equal? current-page 'user)
-                  ;  (build-user '("@1dotd4"
-                  ;      ("c0ff33" "my-fancy-frontend" "stable" "release 1.2" "2021-05-13 1037")
-                  ;      ("c0ff33" "my-fancy-frontend" "add-button" "finalize button" "2021-05-10 1137")
-                  ;      ("c0ff33" "my-fancy-frontend" "add-button" "change color" "2021-05-05 1237")
-                  ;      ("c0ff33" "my-fancy-frontend" "add-button" "add button" "2021-05-03 0937")
-                  ;      ("c0ff33" "my-fancy-frontend" "stable" "release 1.1" "2021-04-25 1137")
-                  ;      ("c0ff33" "my-fancy-frontend" "stable" "release 1.0" "2021-04-01 1537")
-                  ;    )))
-                ;; '("hash" "repository" "branch" "comment" "date"))))
-                  (else
-                    `(div (@ (class "container"))
-                      (p (@ (class "text-center text-muted mt-3 small"))
-                          "Page not found."))))
-          (div (@ (class "container text-secondary text-center my-4 small"))
-            (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-              ,VERSION)))))) ;; - end body -
+       (head
+         (meta (@ (charset "utf-8")))
+         (title
+           ,(string-append 
+              (cond 
+                ((equal? current-page 'people) "People")
+                ((equal? current-page 'repo) "Repositories")
+                ((equal? current-page 'user) "User")
+                (else "Page not found"))
+              " - "
+              *project-name*))
+         (meta (@ (name "viewport") (content "width=device-width, initial-scale=1, shrink-to-fit=no")))
+         (meta (@ (name "author") (content "1dotd4")))
+         (link (@
+                 (href "https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css")
+                 (rel "stylesheet")
+                 (integrity "sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC")
+                 (crossorigin "anonymous"))))
+       (body
+         (div (@ (class "navbar navbar-expand-lg navbar-dark bg-dark static-top mb-3"))
+              (div (@ (class "container"))
+                   (a (@ (class "navbar-brand") (href "./"))
+                      ,(format
+                         "Git overview - ~A"
+                         *project-name*))
+                   (ul (@ (class "nav ml-auto"))
+                       (li (@ (class "nav-item"))
+                           (a (@ (class ,(activate-nav-button current-page 'people))
+                                 (href "./"))
+                              "People"))
+                       (li (@ (class "nav-item"))
+                           (a (@ (class ,(activate-nav-button current-page 'repo))
+                                 (href "repo"))
+                              "Repositories"))
+                       (li (@ (class "nav-item"))
+                           (a (@ (class ,(activate-nav-button current-page 'user))
+                                 (href "#")) ; (href "user")) ; disabled
+                              "User")))))
+         ,(cond ((equal? current-page 'people)
+                 (build-people (retrieve-last-people-activity) current-time))
+                ((equal? current-page 'repo)
+                 `(pre ,(format "~A" (retrieve-last-repository-activity))))
+                (else
+                  `(div (@ (class "container"))
+                        (p (@ (class "text-center text-muted mt-3 small"))
+                           "Page not found."))))
+         (div (@ (class "container text-secondary text-center my-4 small"))
+              (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
+                 ,VERSION)))))) ;; - end body -
 
 ;;;; 3.5 Webserver
 (import spiffy
@@ -705,7 +516,7 @@
   ;; Function to serialize and send SXML as HTML
   (with-headers
     `((connection close))
-     (λ () (write-logged-response)))
+    (λ () (write-logged-response)))
   (serialize-sxml
     sxml
     output: (response-port (current-response))))
@@ -714,11 +525,11 @@
   ;; Function that handles an HTTP requsest in spiffy
   (let* ((uri (request-uri (current-request))))
     (cond ((equal? (uri-path uri) '(/ ""))
-            (send-sxml-response (build-page 'people)))
+           (send-sxml-response (build-page 'people)))
           ((equal? (uri-path uri) '(/ "repo"))
-            (send-sxml-response (build-page 'repo)))
+           (send-sxml-response (build-page 'repo)))
           ((equal? (uri-path uri) '(/ "user"))
-            (send-sxml-response (build-page 'user)))
+           (send-sxml-response (build-page 'user)))
           (else
             (send-sxml-response (build-page 'not-found))))))
 
@@ -736,14 +547,14 @@
 (define opts
   ;; List passed to args:parse to choose which option will be selected and validated.
   (list (args:make-option (i import) (required: "REPOPATH") "Import from repository at path REPOPATH"
-          (set! operation 'import))
+                          (set! operation 'import))
         (args:make-option (n name) (required: "PROJECTNAME") "Set project name"
-          (set! *project-name* arg))
+                          (set! *project-name* arg))
         (args:make-option (s serve) #:none "Serve the database"
-          (set! operation 'serve))
+                          (set! operation 'serve))
         (args:make-option (v V version) #:none "Display version"
-          (print VERSION)
-          (exit))
+                          (print VERSION)
+                          (exit))
         (args:make-option (h help) #:none "Display this text" (usage))))
 
 (define (usage)
@@ -752,10 +563,10 @@
   (with-output-to-port
     (current-error-port)
     (λ ()
-      (print "Usage: " (car (argv)) " [options...] [files...]")
-      (newline)
-      (print (args:usage opts))
-      (print VERSION)))
+       (print "Usage: " (car (argv)) " [options...] [files...]")
+       (newline)
+       (print (args:usage opts))
+       (print VERSION)))
   (exit 1))
 
 (receive
@@ -763,23 +574,21 @@
   ;; will be executed.
   (options operands)
   (args:parse (command-line-arguments) opts)
+  (check-database)
   (cond ((equal? operation 'import)
-          (print "Will import from `" (alist-ref 'import options) ".git`.")
-          (check-database)
-          (import-repository (alist-ref 'import options)))
+         (print "Will import from `" (alist-ref 'import options) ".git`.")
+         (import-repository (alist-ref 'import options)))
         ((equal? operation 'serve)
-          (print "Will serve the database for project " *project-name*)
-          (check-database)
-          ;; Fetch data from database
-          ;; TODO: this should be a coroutine
-          (fetch-repository-data)
-          ;; Set server port in spiffy
-          (server-port *selected-server-port*)
-          (print "The server is starting")
-          ;; Start spiffy web server as seen in §3.5
-          (start-server))
+         (print "Will serve the database for project " *project-name*)
+         ;; Fetch data from database
+         ;; TODO: this should be a coroutine
+         (fetch-repository-data)
+         ;; Set server port in spiffy
+         (server-port *selected-server-port*)
+         (print "The server is starting")
+         ;; Start spiffy web server as seen in §3.5
+         (start-server))
         (else
           ;; This is to update the database will not be here
-          (check-database)
           (fetch-repository-data)))) 
 
