@@ -28,8 +28,5 @@ Unlike git, this program aggregates multiple changes from many repositories in a
 ## Compiling
 - Install [chicken scheme](//call-cc.org).
 - Install dependencies: `chicken-install args combinators spiffy srfi-1 sxml-serializer`.
-- Compile with `csc -static go.scm`.
-
-Notes:
-- OpenBSD has `chicken-csc` instead of `csc`.
+- Compile with `make`.
 

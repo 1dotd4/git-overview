@@ -1,4 +1,10 @@
+OS=$(uname)
+ifeq ($(OS),"OpenBSD")
+CC=chicken-csc
+else
 CC=csc
+endif
+
 BIN=git-overview
 SRCS=go.scm
 LINKS=git-overview.link
