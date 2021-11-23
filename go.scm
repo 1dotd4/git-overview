@@ -433,6 +433,14 @@
              last-commits)))
     (sort commits-with-branches commits:less?)))
 
+(define (activate-checkbox-if-in-query name value query)
+  (if (null? query)
+    '(class "")
+    (if (and (eq? (caar query) name)
+             (string=? (cdr (car query)) value))
+      '(checked)
+      (activate-checkbox-if-in-query name value (cdr query)))))
+
 (define (retrieve-last-commits query)
   (let* ((db (database:read)))
     (print query)
@@ -440,11 +448,11 @@
        (@ (class "container"))
        (form
          (@ (action "./insight")
-            (method "get")
-            (class "row my-3"))
+            (method "get"))
+            ;; (class "row my-3"))
          (fieldset
-           (@ (class "col-lg-3 my-3 mx-auto"))
-           (legend "Choose repository")
+           ;; (@ (class "col-lg-3 my-3 mx-auto"))
+           (legend "Filter repository")
            ,(map
               (λ (r)
                  `(div
@@ -455,15 +463,19 @@
                          (id ,(car r))
                          (name "repo")
                          ;; TODO: checked if query say so
-                         (value ,(car r))))
+                         (value ,(car r))
+                         ,(activate-checkbox-if-in-query
+                            'repo
+                            (car r)
+                            query)))
                     (label
                       (@ (class "form-check-label")
                          (for ,(car r)))
                       ,(car r))))
               (database->repositories db)))
          (fieldset
-           (@ (class "col-lg-3 my-3 mx-auto"))
-           (legend "Choose people")
+           ;; (@ (class "col-lg-3 my-3 mx-auto"))
+           (legend "Filter people")
            ,(map
               (λ (p)
                  `(div
@@ -472,9 +484,12 @@
                       (@ (type "checkbox")
                          (class "form-check-input")
                          (id ,(car p))
-                         (name "repo")
-                         ;; TODO: checked if query say so
-                         (value ,(car p))))
+                         (name "people")
+                         (value ,(car p))
+                         ,(activate-checkbox-if-in-query
+                            'people
+                            (car p)
+                            query)))
                     (label
                       (@ (class "form-check-label")
                          (for ,(car p)))
@@ -483,7 +498,7 @@
          (input (@ (type "submit")
                    (name "submit")
                    (value "Apply filter")
-                   (class "btn btn-primary col-lg-1 my-5"))))
+                   (class "btn btn-primary"))))
        (pre ,(expand (sort (database->commits db) commits:less?))))))
 
 
