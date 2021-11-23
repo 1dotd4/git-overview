@@ -86,6 +86,14 @@
 ;;;; 0.3 Known issues
 
 ;;; TODO:
+;;; - On import, if the repo doesn't exists, the DB is deleted
+;; TODO: setup security
+;; (server-port 443)
+;; (spiffy-user "www")
+;; (spiffy-group "www")
+
+;; TODO should this be CGI?
+
 
 ;;;; 1. Requirements analysis
 
@@ -276,6 +284,8 @@
 (define (database->branches db) (caddr db))
 (define (database->commits db) (cadddr db))
 
+(define (database:read) (call-with-input-file *data-file* (λ (i) (read i))))
+
 (define (database:merge a b)
   (make-database
     (append (database->repositories a) (database->repositories b))
@@ -308,7 +318,7 @@
 (define (import-repository path)
   ;; Function to import a repository from a path.
   ;; Will add only the path as it's the main loop to import the data.
-  (let ((db (call-with-input-file *data-file* (λ (o) (read o)))))
+  (let ((db (database:read)))
     (call-with-output-file
       *data-file*
       (λ (o)
@@ -368,7 +378,7 @@
 
 (define (fetch-repository-data)
   ;; Function to populate data for each repository
-  (let* ((db (call-with-input-file *data-file* (λ (i) (read i))))
+  (let* ((db (database:read))
         (repositories (database->repositories db))
         (data-for-each-repository (map populate-repository-information repositories))
         (merged-data (fold database:merge '(() () () ()) data-for-each-repository)))
@@ -386,7 +396,7 @@
 
 (define (retrieve-last-people-activity)
   ;; Function that query for last people activity
-  (let* ((db (call-with-input-file *data-file* (λ (i) (read i))))
+  (let* ((db (database:read))
          (commits (database->commits db))
          (people (database->people db))
          (last-commits (map (λ (user) (commits:get-last (commits:filter-by-user user commits)))
@@ -406,6 +416,60 @@
                                      last-commits)))
     (sort commits-with-branches commits:less?)))
 
+(define (retrieve-last-commits query)
+  (let* ((db (database:read)))
+    (print query)
+    `(div
+       (@ (class "container"))
+       (form
+         (@ (action "./insight")
+            (method "get")
+            (class "row my-3"))
+         (fieldset
+           (@ (class "col-lg-3 my-3 mx-auto"))
+           (legend "Choose repository")
+           ,(map
+              (λ (r)
+                 `(div
+                    (@ (class "form-check form-check-inline"))
+                    (input
+                      (@ (type "checkbox")
+                         (class "form-check-input")
+                         (id ,(car r))
+                         (name "repo")
+                         ;; TODO: checked if query say so
+                         (value ,(car r))))
+                    (label
+                      (@ (class "form-check-label")
+                         (for ,(car r)))
+                      ,(car r))))
+              (database->repositories db)))
+         (fieldset
+           (@ (class "col-lg-3 my-3 mx-auto"))
+           (legend "Choose people")
+           ,(map
+              (λ (p)
+                 `(div
+                    (@ (class "form-check form-check-inline"))
+                    (input
+                      (@ (type "checkbox")
+                         (class "form-check-input")
+                         (id ,(car p))
+                         (name "repo")
+                         ;; TODO: checked if query say so
+                         (value ,(car p))))
+                    (label
+                      (@ (class "form-check-label")
+                         (for ,(car p)))
+                      ,(cdr p))))
+              (database->people db)))
+         (input (@ (type "submit")
+                   (name "submit")
+                   (value "Apply filter")
+                   (class "btn btn-primary col-lg-1 my-5"))))
+       (pre ,(expand (sort (database->commits db) commits:less?))))))
+
+
 ;;;; 3.4 Page rendering
 (import (chicken time))
 
@@ -418,25 +482,24 @@
          (days (quotient hours 24))
          (months (quotient days 30)))
     (cond
-      ((> months 0) (format "~A month" months))
-      ((> days 0) (format "~A day" days))
-      ((> hours 0) (format "~A hour" hours))
-      ((> minutes 0) (format "~A minute" minutes))
-      (else (format "~A second" seconds)))))
+      ((> months 0) (format "~A mo" months))
+      ((> days 0) (format "~A d" days))
+      ((> hours 0) (format "~A h" hours))
+      ((> minutes 0) (format "~A m" minutes))
+      (else (format "~A s" seconds)))))
 
 (define (data->sxml-card data current-time)
   `(div (@ (class "col-lg-3 my-3 mx-auto"))
-        (div (@ (class "card"))
+        (div (@ (class "card")
+                (title ,(format "~A" (car (string-chop (commit->hash data) 7)))))
              (div (@ (class "card-body"))
                   (h5 (@ (class "card-title")) ,(commit->author data))
                   (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (commit->repository data) (commit->refs data))))
              (div
                (@ (class "card-footer"))
                ,(format
-                  "Last update ~A(s) ago."
+                  "Last update ~A ago."
                   (format-diff current-time (commit->timestamp data)))))))
-                ;; Was used to get the commit's first characters (7) just like the compact version is
-                ;; (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (cadr data) (car (string-chop (caddr data) 7)))))
 
 (define (build-people data current-time)
   ;; Function that build a page for displaying last update for each committer
@@ -452,18 +515,16 @@
             "light active"
             "secondary")))
 
-(define (build-page current-page)
+(define (build-page current-page content)
   ;; Function that build the appropriate page
-  (let ((current-time (current-seconds)))
     `(html
        (head
          (meta (@ (charset "utf-8")))
          (title
            ,(string-append 
               (cond 
-                ((equal? current-page 'people) "People")
-                ((equal? current-page 'repo) "Repositories")
-                ((equal? current-page 'user) "User")
+                ((equal? current-page 'home) "People")
+                ((equal? current-page 'insight) "Insights")
                 (else "Page not found"))
               " - "
               *project-name*))
@@ -483,28 +544,17 @@
                          *project-name*))
                    (ul (@ (class "nav ml-auto"))
                        (li (@ (class "nav-item"))
-                           (a (@ (class ,(activate-nav-button current-page 'people))
+                           (a (@ (class ,(activate-nav-button current-page 'home))
                                  (href "./"))
                               "People"))
                        (li (@ (class "nav-item"))
-                           (a (@ (class ,(activate-nav-button current-page 'repo))
-                                 (href "repo"))
-                              "Repositories"))
-                       (li (@ (class "nav-item"))
-                           (a (@ (class ,(activate-nav-button current-page 'user))
-                                 (href "#")) ; (href "user")) ; disabled
-                              "User")))))
-         ,(cond ((equal? current-page 'people)
-                 (build-people (retrieve-last-people-activity) current-time))
-                ((equal? current-page 'repo)
-                 `(pre ,(format "~A" (retrieve-last-repository-activity))))
-                (else
-                  `(div (@ (class "container"))
-                        (p (@ (class "text-center text-muted mt-3 small"))
-                           "Page not found."))))
+                           (a (@ (class ,(activate-nav-button current-page 'insight))
+                                 (href "./insight"))
+                              "Insights")))))
+         ,content
          (div (@ (class "container text-secondary text-center my-4 small"))
-              (a (@ (class "text-info") (href "https://github.com/1dotd4/go"))
-                 ,VERSION)))))) ;; - end body -
+              (a (@ (class "text-info") (href "http://unpx.net/code/git-overview.git/"))
+                 ,VERSION))))) ;; - end body -
 
 ;;;; 3.5 Webserver
 (import spiffy
@@ -523,15 +573,24 @@
 
 (define (handle-request continue)
   ;; Function that handles an HTTP requsest in spiffy
-  (let* ((uri (request-uri (current-request))))
-    (cond ((equal? (uri-path uri) '(/ ""))
-           (send-sxml-response (build-page 'people)))
-          ((equal? (uri-path uri) '(/ "repo"))
-           (send-sxml-response (build-page 'repo)))
-          ((equal? (uri-path uri) '(/ "user"))
-           (send-sxml-response (build-page 'user)))
+  (let* ((uri (request-uri (current-request)))
+         (path (uri-path uri))
+         (current-time (current-seconds))
+         (query (uri-query uri)))
+    (cond ((equal? path '(/ ""))
+           (send-sxml-response
+             (build-page 'home
+                         (build-people (retrieve-last-people-activity) current-time))))
+          ((equal? path '(/ "insight"))
+           (send-sxml-response
+             (build-page 'insight
+                         (retrieve-last-commits query))))
           (else
-            (send-sxml-response (build-page 'not-found))))))
+            (send-sxml-response
+              (build-page 'not-found
+                          '(div (@ (class "container"))
+                                (p (@ (class "text-center text-muted mt-3 small"))
+                                   "Page not found."))))))))
 
 ;; Map a any vhost to the main handler
 (vhost-map `((".*" . ,handle-request)))

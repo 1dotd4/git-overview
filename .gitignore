@@ -8,5 +8,7 @@
 *.link
 *.sqlite3
 go
+git-overview
+data.sexp
 data
 test/
