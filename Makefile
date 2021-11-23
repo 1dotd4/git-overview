@@ -1,22 +1,21 @@
-OS=$(uname)
-ifeq ($(OS),"OpenBSD")
+OS != uname
+.if "$(OS)" == "OpenBSD"
 CC=chicken-csc
-else
+.else
 CC=csc
-endif
+.endif
 
+.PHONY: all clean
+
+.SUFFIXES=.scm
 BIN=git-overview
 SRCS=go.scm
 LINKS=git-overview.link
 
-.PHONY: all clean
-
 all: $(BIN)
 
 $(BIN): $(SRCS)
-	$(CC) -static -o $@ $<
+	$(CC) -static -o $@ $>
 
 clean:
-	rm -f $(BINS) $(LINKS)
-
-
+	rm -f $(BIN) $(LINKS)
