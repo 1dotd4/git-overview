@@ -343,11 +343,10 @@
             (branches (database->branches db))
             (commits (database->commits db)))
         (if (fold binary-or #f (map
-                                 (lambda (x)
-                                   (eq? (car x)
-                                        basename))
+                                 (λ (r) (string=? (repository->name r)
+                                                  basename))
                                  repositories))
-          (print "Thir repository already exists")
+          (print "This repository already exists")
           (call-with-output-file
             *data-file*
             (λ (o)
