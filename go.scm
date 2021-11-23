@@ -252,20 +252,17 @@
   (car (sort commits commits:less?)))
 
 (define (commits:find-child commit commits)
-  (if (null? commits)
-    #f
-    (if (fold binary-or #f (map (lambda (x) (string=? x (commit->hash commit))) (commit->parents (car commits))))
-      (car commits)
-      (commits:find-child commit (cdr commits)))))
-
+  (cond ((null? commits) #f)
+        ((and (string=? (commit->repository commit) (commit->repository (car commits)))
+              (fold binary-or #f (map (lambda (x) (string=? x (commit->hash commit))) (commit->parents (car commits)))))
+         (car commits))
+        (else (commits:find-child commit (cdr commits)))))
 
 (define (commits:find-ref commit commits)
   (let ((child (commits:find-child commit commits)))
     (if child
-      (if (null? (commit->refs child))
-        (commits:find-ref child commits)
-        child)
-      (if (null? (commit->refs commit))
+      (commits:find-ref child commits)
+      (if (string=? "" (commit->refs commit))
         #f
         commit))))
 
