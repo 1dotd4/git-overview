@@ -85,8 +85,6 @@
 
 ;;;; 0.3 Known issues
 
-;;; TODO:
-;;; - On import, if the repo doesn't exists, the DB is deleted
 ;; TODO: setup security
 ;; (server-port 443)
 ;; (spiffy-user "www")
@@ -111,18 +109,36 @@
 ;;; 3. run `git-overview --serve` to check that everything is working;
 ;;; 4. setup it as a service and add a basic auth in front of it.
 ;;;
-;;; The service will have a homepage and other two pages that display the
-;;; status of the team and the project.
+;;; The service will have a homepage and an insight page that display the
+;;; commit history with more details.
+;;;
+;;; In the home page one want to see:
+;;; - who pushed last,
+;;; - where did she push,
+;;; - how time ago did she push.
+;;;
+;;; In addition one may want to see:
+;;; - the commit trimmed to 7 characted.
+;;;
+;;; In the insight page one want to see latest commits with various
+;;; filters:
+;;; - commits in the selected repositories,
+;;; - commits from the selected people,
+;;; - commits after and/or before a selected commit in a temporally,
+;;; - commits after and/or before a selected commit in the same branch. 
+;;;
+;;; This is to help a developer finding the reasons of certain bugs or
+;;; fixes found in the code and reconstruct the decision made past in time.
 
 ;;;; 2. Design
 
 ;;; We will not use SQLite3 because SQL can't traverse graphs efficiently.
 ;;; We will use S-expressions to store our data which is easier to
-;;; manipulate.
+;;; manipulate. In the future S-expression will contain just what is needed
+;;; to connect to external servers like GitHub.
 ;;;
 ;;; The import action will only add the minimum information of the
-;;; repository to the database. This is important for future type of
-;;; fetching from a repository, like GitHub.
+;;; repository to the database. This is also important for future.
 ;;;
 ;;; The serve action is composed of different tasks:
 ;;; - serve the web pages which are rendered from the query to the database;
@@ -138,8 +154,8 @@
 ;;;  3. fetch latest commits
 ;;;  4. organize the commits in the database
 ;;;
-;;; Having more tasks reading and writing can be a problem. Luckly SQLite3
-;;; is threadsafe and if it happen to be slow it's possible to enable WAL.
+;;; There are just one writer at a time that will update the database,
+;;; every other task will just read from the file.
 
 ;;;; 3. Implementation
 
@@ -147,11 +163,10 @@
 
 ;;;; 3.1.1. Running and compiling
 
-;;; chicken-csi -s go.scm <add-options-here>
-;;; chicken-csc -static go.scm
+;;; make
 
 ;;; 3.1.2 Debugging
-;;; User (expand <symbol>) to visualize stuff in your <pre> debuge page.
+;;; User (expand <symbol>) to visualize stuff in your <pre> debug page.
 
 ;;;; 3.1.3 Name convention
 
@@ -319,23 +334,23 @@
   ;; Function to import a repository from a path.
   ;; Will add only the path as it's the main loop to import the data.
   (let ((db (database:read)))
-    (call-with-output-file
-      *data-file*
-      (λ (o)
-         (if (not (directory-exists? (format "~A.git" path)))
-           (print "Could not find .git directory")
-           (let ((basename (sh-basename path))
-                 (repo-path (format "~A.git" path))
-                 (repositories (database->repositories db))
-                 (people (database->people db))
-                 (branches (database->branches db))
-                 (commits (database->commits db)))
-             (if (fold binary-or #f (map
-                               (lambda (x)
-                                 (eq? (car x)
-                                      basename))
-                               repositories))
-               (print "Thir repository already exists")
+    (if (not (directory-exists? (format "~A.git" path)))
+      (print "Could not find .git directory")
+      (let ((basename (sh-basename path))
+            (repo-path (format "~A.git" path))
+            (repositories (database->repositories db))
+            (people (database->people db))
+            (branches (database->branches db))
+            (commits (database->commits db)))
+        (if (fold binary-or #f (map
+                                 (lambda (x)
+                                   (eq? (car x)
+                                        basename))
+                                 repositories))
+          (print "Thir repository already exists")
+          (call-with-output-file
+            *data-file*
+            (λ (o)
                (begin
                  (write
                    (make-database
@@ -401,19 +416,22 @@
          (people (database->people db))
          (last-commits (map (λ (user) (commits:get-last (commits:filter-by-user user commits)))
                             people))
-         (commits-with-branches (map (lambda (c) (make-commit 
-                                                   (commit->hash c)
-                                                   (commit->parents c)
-                                                   (commit->repository c)
-                                                   (users:get-name-from-email
-                                                     (database->people db)
-                                                     (commit->author c))
-                                                   (commit->comment c)
-                                                   (commit->timestamp c)
-                                                   (branches:find-name-from-hash
-                                                     (database->branches db)
-                                                     (commit->hash (commits:find-ref c commits)))))
-                                     last-commits)))
+         (commits-with-branches
+           (map
+             (λ (c)
+                (make-commit
+                  (commit->hash c)
+                  (commit->parents c)
+                  (commit->repository c)
+                  (users:get-name-from-email
+                    (database->people db)
+                    (commit->author c))
+                  (commit->comment c)
+                  (commit->timestamp c)
+                  (branches:find-name-from-hash
+                    (database->branches db)
+                    (commit->hash (commits:find-ref c commits)))))
+             last-commits)))
     (sort commits-with-branches commits:less?)))
 
 (define (retrieve-last-commits query)
