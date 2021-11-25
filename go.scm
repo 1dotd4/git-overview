@@ -459,7 +459,7 @@
 
 (define (build-table-commits current-time commits branches authors)
   `(table
-     (@ (class "table"))
+     (@ (class "table table-hover"))
      (theader
       (tr
         (th "Author")
@@ -472,7 +472,7 @@
        ,(map
           (λ (commit)
              `(tr
-                ;; if it's a merge commit gray it out because we don't really care about those (usually)
+                ;; TODO: if it's a merge commit gray it out because we don't really care about those (usually)
                 (td ,(users:get-name-from-email authors (commit->author commit)))
                 (td ,(commit->comment commit))
                 (td ,(commit->shorthash commit))
