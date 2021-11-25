@@ -459,7 +459,7 @@
 
 (define (build-table-commits current-time commits branches authors)
   `(table
-     (@ (class "table table-hover"))
+     (@ (class "table table-hover table-light"))
      (theader
       (tr
         (th "Author")
@@ -472,7 +472,11 @@
        ,(map
           (λ (commit)
              `(tr
-                ;; TODO: if it's a merge commit gray it out because we don't really care about those (usually)
+                (@ (class ,(string-append
+                             ;; TODO: if it's a merge commit gray (.text-muted) and small (.small) it out because we don't really care about those (usually)
+                             (if (#f) "text-muted small " "")
+                             ;; TODO: latest commits (<1h) colored with class (in the tr) table-info
+                             (if (#f) "table-info" ""))))
                 (td ,(users:get-name-from-email authors (commit->author commit)))
                 (td ,(commit->comment commit))
                 (td ,(commit->shorthash commit))
