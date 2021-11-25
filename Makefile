@@ -1,6 +1,5 @@
-.PHONY: all clean
+.POSIX:
 
-# COMPILER=./build
 include config.mk
 BIN=git-overview
 SRCS=go.scm
@@ -13,3 +12,5 @@ $(BIN): $(SRCS)
 
 clean:
 	rm -f $(BIN) $(LINKS)
+
+.PHONY: all clean

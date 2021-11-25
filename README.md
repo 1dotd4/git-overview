@@ -28,5 +28,6 @@ Unlike git, this program aggregates multiple changes from many repositories in a
 ## Compiling
 - Install [chicken scheme](//call-cc.org).
 - Install dependencies: `chicken-install args combinators spiffy srfi-1 sxml-serializer`.
+- Run `./configure` to setup the compiler options.
 - Compile with `make`.
 

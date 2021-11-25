@@ -1,4 +1,10 @@
 #!/bin/sh
+echo "# Generated with ./configure" > config.mk
+# function that writes macros to the config.mk
+setmacro () {
+  echo "$1=$2" >> config.mk
+}
+
 COMPILER=csc
 if [ `uname` = "OpenBSD" ] ; then
   echo "Detected OpenBSD"
@@ -8,4 +14,4 @@ else
   echo "Using csc as compiler"
 fi
 
-echo "COMPILER=$COMPILER" > config.mk
+setmacro COMPILER $COMPILER

@@ -1,7 +1,0 @@
-#!/bin/sh
-CC=csc
-if [ `uname` = "OpenBSD" ] ; then
-  CC=chicken-csc
-fi
-echo "$CC $@"
-$CC $@
