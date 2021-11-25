@@ -473,10 +473,14 @@
           (λ (commit)
              `(tr
                 (@ (class ,(string-append
-                             ;; TODO: if it's a merge commit gray (.text-muted) and small (.small) it out because we don't really care about those (usually)
-                             (if (#f) "text-muted small " "")
-                             ;; TODO: latest commits (<1h) colored with class (in the tr) table-info
-                             (if (#f) "table-info" ""))))
+                             (if (> (length (commit->parents commit)) 1)
+                               "text-muted small "
+                               "")
+                             (if (< (- current-time
+                                       (commit->timestamp commit))
+                                    3600) ; <1h
+                               "table-info"
+                               ""))))
                 (td ,(users:get-name-from-email authors (commit->author commit)))
                 (td ,(commit->comment commit))
                 (td ,(commit->shorthash commit))
@@ -509,7 +513,6 @@
                          (class "form-check-input")
                          (id ,(car r))
                          (name "repo")
-                         ;; TODO: checked if query say so
                          (value ,(car r))
                          ,(activate-checkbox-if-in-query
                             'repo
