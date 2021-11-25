@@ -68,9 +68,11 @@
         (chicken io)
         (chicken file)
         (chicken sort)
+        (chicken time)
         (chicken format)
         (chicken string)
-        (chicken process))
+        (chicken process)
+        (chicken time posix))
 
 (define (binary-or a b) (or a b))
 
@@ -237,12 +239,29 @@
     (list hash parents repo-name author comment unixtime refs)))
 
 (define (commit->hash c) (car c))
+(define (commit->shorthash c) (car (string-chop (commit->hash c) 7)))
 (define (commit->parents c) (cadr c))
 (define (commit->repository c) (caddr c))
 (define (commit->author c) (list-ref c 3))
 (define (commit->comment c) (list-ref c 4))
 (define (commit->timestamp c) (list-ref c 5))
+(define (commit->format-date c) (time->string (seconds->local-time (commit->timestamp c)) "%Y %b %e %a %H:%M:%S %Z"))
 (define (commit->refs c) (list-ref c 6))
+
+(define (format-diff current atime)
+  ;; Funciton to format how much ago a thing happened
+  (let* ((abs-seconds (- current atime))
+         (seconds (modulo abs-seconds 60))
+         (minutes (quotient abs-seconds 60))
+         (hours (quotient minutes 60))
+         (days (quotient hours 24))
+         (months (quotient days 30)))
+    (cond
+      ((> months 0) (format "~Amo" months))
+      ((> days 0) (format "~Ad" days))
+      ((> hours 0) (format "~Ah" hours))
+      ((> minutes 0) (format "~Am" minutes))
+      (else (format "~As" seconds)))))
 
 (define (commits:less? a b)
   (> (commit->timestamp a)
@@ -438,7 +457,34 @@
       '(checked)
       (activate-checkbox-if-in-query name value (cdr query)))))
 
-(define (retrieve-last-commits query)
+(define (build-table-commits current-time commits branches authors)
+  `(table
+     (@ (class "table"))
+     (theader
+      (tr
+        (th "Author")
+        (th "Message")
+        (th "Commit ID")
+        (th "Branch")
+        (th "Repository")
+        (th "Date")))
+     (tbody
+       ,(map
+          (λ (commit)
+             `(tr
+                ;; if it's a merge commit gray it out because we don't really care about those (usually)
+                (td ,(users:get-name-from-email authors (commit->author commit)))
+                (td ,(commit->comment commit))
+                (td ,(commit->shorthash commit))
+                (td ,(branches:find-name-from-hash
+                       branches
+                       (commit->hash (commits:find-ref commit commits))))
+                (td ,(commit->repository commit))
+                (td (@ (title ,(commit->format-date commit)))
+                    ,(format-diff current-time (commit->timestamp commit)))))
+          commits))))
+
+(define (retrieve-last-commits current-time query)
   (let* ((db (database:read)))
     (print query)
     `(div
@@ -496,36 +542,25 @@
                    (name "submit")
                    (value "Apply filter")
                    (class "btn btn-primary"))))
-       (pre ,(expand (sort (database->commits db) commits:less?))))))
+       ,(build-table-commits current-time
+                             (take (sort (database->commits db) commits:less?)
+                                   30)
+                             (database->branches db)
+                             (database->people db)))))
 
 
 ;;;; 3.4 Page rendering
-(import (chicken time))
-
-(define (format-diff current atime)
-  ;; Funciton to format how much ago a thing happened
-  (let* ((abs-seconds (- current atime))
-         (seconds (modulo abs-seconds 60))
-         (minutes (quotient abs-seconds 60))
-         (hours (quotient minutes 60))
-         (days (quotient hours 24))
-         (months (quotient days 30)))
-    (cond
-      ((> months 0) (format "~A mo" months))
-      ((> days 0) (format "~A d" days))
-      ((> hours 0) (format "~A h" hours))
-      ((> minutes 0) (format "~A m" minutes))
-      (else (format "~A s" seconds)))))
 
 (define (data->sxml-card data current-time)
   `(div (@ (class "col-lg-3 my-3 mx-auto"))
-        (div (@ (class "card")
-                (title ,(format "~A" (car (string-chop (commit->hash data) 7)))))
-             (div (@ (class "card-body"))
+        (div (@ (class "card"))
+             (div (@ (class "card-body")
+                     (title ,(format "~A" (commit->shorthash data))))
                   (h5 (@ (class "card-title")) ,(commit->author data))
                   (h6 (@ (class "card-subtitle")) ,(format "~A/~A" (commit->repository data) (commit->refs data))))
              (div
-               (@ (class "card-footer"))
+               (@ (class "card-footer")
+                  (title ,(commit->format-date data)))
                ,(format
                   "Last update ~A ago."
                   (format-diff current-time (commit->timestamp data)))))))
@@ -613,7 +648,7 @@
           ((equal? path '(/ "insight"))
            (send-sxml-response
              (build-page 'insight
-                         (retrieve-last-commits query))))
+                         (retrieve-last-commits current-time query))))
           (else
             (send-sxml-response
               (build-page 'not-found
