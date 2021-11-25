@@ -301,10 +301,16 @@
       (user->name (car authors))
       (users:get-name-from-email (cdr authors) email))))
 
-(define (commits:filter-by-user user commits)
+(define (commits:filter-by-users users commits)
   (filter
-    (λ (commit) (string=? (user->email user)
-                     (commit->author commit)))
+    (λ (commit) 
+       (fold binary-or
+             #f 
+             (map
+               (λ (user)
+                  (string=? (user->email user)
+                            (commit->author commit)))
+               users)))
     commits))
 
 (define (make-database repositories people branches commits)
@@ -429,7 +435,7 @@
   (let* ((db (database:read))
          (commits (database->commits db))
          (people (database->people db))
-         (last-commits (map (λ (user) (commits:get-last (commits:filter-by-user user commits)))
+         (last-commits (map (λ (user) (commits:get-last (commits:filter-by-user (cons user '()) commits)))
                             people))
          (commits-with-branches
            (map
