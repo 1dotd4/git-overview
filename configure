@@ -1,0 +1,11 @@
+#!/bin/sh
+COMPILER=csc
+if [ `uname` = "OpenBSD" ] ; then
+  echo "Detected OpenBSD"
+  COMPILER=chicken-csc
+  echo "Using chicken-csc as compiler"
+else
+  echo "Using csc as compiler"
+fi
+
+echo "COMPILER=$COMPILER" > config.mk

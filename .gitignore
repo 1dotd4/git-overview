@@ -12,3 +12,4 @@ git-overview
 data.sexp
 data
 test/
+config.mk
