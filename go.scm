@@ -85,6 +85,11 @@
               alist
               (cons new-element alist))))))
 
+(define (take-at-most alist most)
+  (if (< (length alist) most)
+    alist
+    (take alist most)))
+
 ;;;; 0.3 Known issues
 
 ;; TODO: setup security
@@ -301,17 +306,50 @@
       (user->name (car authors))
       (users:get-name-from-email (cdr authors) email))))
 
-(define (commits:filter-by-users users commits)
+(define (commits:filter-by-user-emails user-emails commits)
   (filter
     (λ (commit) 
        (fold binary-or
              #f 
              (map
-               (λ (user)
-                  (string=? (user->email user)
+               (λ (email)
+                  (string=? email
                             (commit->author commit)))
-               users)))
+               user-emails)))
     commits))
+
+(define (commits:filter-by-repository-name repo-names commits)
+  (filter
+    (λ (commit) 
+       (fold binary-or
+             #f 
+             (map
+               (λ (a-repo-name)
+                  (string=? a-repo-name
+                            (commit->repository commit)))
+               repo-names)))
+    commits))
+
+(define (query:collect type query)
+  (flatten
+    (map
+      (λ (param)
+         (if (eq? type (car param))
+           (cdr param)
+           '()))
+      query)))
+
+(define (query:filter-by-users query commits)
+  (let ((emails (query:collect 'people query)))
+    (if (null? emails)
+      commits
+      (commits:filter-by-user-emails emails commits))))
+
+(define (query:filter-by-repository query commits)
+  (let ((repos (query:collect 'repo query)))
+    (if (null? repos)
+      commits
+      (commits:filter-by-repository-name repos commits))))
 
 (define (make-database repositories people branches commits)
   (list repositories people branches commits))
@@ -435,7 +473,7 @@
   (let* ((db (database:read))
          (commits (database->commits db))
          (people (database->people db))
-         (last-commits (map (λ (user) (commits:get-last (commits:filter-by-user (cons user '()) commits)))
+         (last-commits (map (λ (user) (commits:get-last (commits:filter-by-user-emails (list (user->email user)) commits)))
                             people))
          (commits-with-branches
            (map
@@ -463,7 +501,7 @@
       '(checked)
       (activate-checkbox-if-in-query name value (cdr query)))))
 
-(define (build-table-commits current-time commits branches authors)
+(define (build-table-commits current-time query commits branches authors)
   `(table
      (@ (class "table table-hover table-light"))
      (theader
@@ -496,11 +534,19 @@
                 (td ,(commit->repository commit))
                 (td (@ (title ,(commit->format-date commit)))
                     ,(format-diff current-time (commit->timestamp commit)))))
-          commits))))
+          (take-at-most
+            (sort
+              (query:filter-by-users
+                query
+                (query:filter-by-repository
+                  query
+                  commits))
+              commits:less?)
+            30)))))
 
 (define (retrieve-last-commits current-time query)
   (let* ((db (database:read)))
-    (print query)
+    (print (expand query))
     `(div
        (@ (class "container"))
        (form
@@ -556,8 +602,8 @@
                    (value "Apply filter")
                    (class "btn btn-primary"))))
        ,(build-table-commits current-time
-                             (take (sort (database->commits db) commits:less?)
-                                   30)
+                             query
+                             (database->commits db)
                              (database->branches db)
                              (database->people db)))))
 
