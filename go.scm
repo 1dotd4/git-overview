@@ -65,6 +65,7 @@
 
 (import srfi-1
         sort-combinators
+        uri-common
         (chicken io)
         (chicken file)
         (chicken sort)
@@ -89,6 +90,11 @@
   (if (< (length alist) most)
     alist
     (take alist most)))
+
+(define (drop-first alist most)
+  (if (< (length alist) most)
+    '()
+    (drop alist most)))
 
 ;;;; 0.3 Known issues
 
@@ -338,6 +344,9 @@
            (cdr param)
            '()))
       query)))
+(define (query:page-number query)
+  (let ((query-page-number (query:collect 'page query)))
+    (if (null? query-page-number) 1 (string->number (car query-page-number)))))
 
 (define (query:filter-by-users query commits)
   (let ((emails (query:collect 'people query)))
@@ -501,6 +510,50 @@
       '(checked)
       (activate-checkbox-if-in-query name value (cdr query)))))
 
+(define *commits-per-page* 30)
+
+(define (build-page-navigation query commits)
+  (let* ((page-number (query:page-number query))
+         (total-pages (round (/ (length (sort
+                                  (query:filter-by-users
+                                    query
+                                    (query:filter-by-repository
+                                      query
+                                      commits))
+                                  commits:less?))
+         *commits-per-page*)))
+         (next-page-commits (take-at-most
+                              (drop-first
+                                (sort
+                                  (query:filter-by-users
+                                    query
+                                    (query:filter-by-repository
+                                      query
+                                      commits))
+                                  commits:less?)
+                                (* *commits-per-page* page-number))
+                              *commits-per-page*)))
+    `(nav (@ (aria-label "Page of commits"))
+          (ul (@ (class "pagination justify-content-end"))
+              (li (@ (class "page-item"))
+                  (a (@ (class "page-link")
+                        (href
+                          ,(if (> page-number 1)
+                             (uri->string (update-uri (uri-reference "") path: '("." "insight") query: (alist-update 'page (sub1 page-number) query)))
+                             "#")))
+                     "Previous"))
+              (li (@ (class "page-item"))
+                  (a (@ (class "page-link")
+                        (href "#"))
+                     ,(string-append (number->string page-number) " of " (number->string total-pages))))
+              (li (@ (class "page-item"))
+                  (a (@ (class "page-link")
+                        (href
+                          ,(if (not (null? next-page-commits))
+                             (uri->string (update-uri (uri-reference "") path: '("." "insight") query: (alist-update 'page (add1 page-number) query)))
+                             "#")))
+                     "Next"))))))
+
 (define (build-table-commits current-time query commits branches authors)
   `(table
      (@ (class "table table-hover table-light"))
@@ -535,14 +588,16 @@
                 (td (@ (title ,(commit->format-date commit)))
                     ,(format-diff current-time (commit->timestamp commit)))))
           (take-at-most
-            (sort
-              (query:filter-by-users
-                query
-                (query:filter-by-repository
+            (drop-first
+              (sort
+                (query:filter-by-users
                   query
-                  commits))
-              commits:less?)
-            30)))))
+                  (query:filter-by-repository
+                    query
+                    commits))
+                commits:less?)
+              (* (sub1 (query:page-number query)) *commits-per-page*))
+            *commits-per-page*)))))
 
 (define (retrieve-last-commits current-time query)
   (let* ((db (database:read)))
@@ -601,6 +656,7 @@
                    (name "submit")
                    (value "Apply filter")
                    (class "btn btn-primary"))))
+       ,(build-page-navigation query (database->commits db))
        ,(build-table-commits current-time
                              query
                              (database->commits db)
@@ -700,11 +756,11 @@
          (path (uri-path uri))
          (current-time (current-seconds))
          (query (uri-query uri)))
-    (cond ((equal? path '(/ ""))
+    (cond ((equal? path '(/ "bytebot" ""))
            (send-sxml-response
              (build-page 'home
                          (build-people (retrieve-last-people-activity) current-time))))
-          ((equal? path '(/ "insight"))
+          ((equal? path '(/ "bytebot" "insight"))
            (send-sxml-response
              (build-page 'insight
                          (retrieve-last-commits current-time query))))
