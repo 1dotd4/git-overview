@@ -98,6 +98,9 @@
 
 ;;;; 0.3 Known issues
 
+;; - Timezone does not exists because of broken import function
+;; - UI is not that nice in /insight
+
 ;; TODO: setup security
 ;; (server-port 443)
 ;; (spiffy-user "www")
